@@ -1,0 +1,32 @@
+# list of servers, wikis, and values to be substituted into
+# a query template on each server
+# All variables will be converted to upper case and prefixed
+# with a '$' and that string in the template will be substituted
+# with the supplied value
+# Shard names aren't used for anything except as a way to group
+# servers together
+
+servers:
+  foo:
+    hosts:
+      - localhost
+      - localhost:3306
+    wikis:
+      elwikivoyage:
+        bigpage: '248'
+        revid: '690'
+        startpage: '200'
+        endpage: '300'
+        namespace: '14'
+        title: Βόρεια_Αμερική
+  bar:
+    hosts:
+      - localhost
+    wikis:
+      elwikivoyage:
+        bigpage: '103'
+        revid: '431'
+        startpage: '80'
+        endpage: '180'
+        namespace: '0'
+        title: Ελλάδα
