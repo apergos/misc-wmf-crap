@@ -12,20 +12,13 @@ and db cursor.
 
 
 # TODOs:
-# * (some) verbose messages to one output channel,
-#   the bare minimum (query text for show explain
-#   and results, along with db hostname, wiki) in
-#   another output channel? Maybe severe issues
-#   (exceptions that cause the program to quit,
-#   failed kills) to go to a third which is always
-#   the console?
 # * check other exceptions that can be raised
-#   by mysql calls and see if there's anything
-#   unexpected
-#   consider what happens in worst case scenarios
-#     * network goes away in the middle of a run
-#       leaving the server still running its query
-#     * other?
+#   by mysql calls, see what we overlooked
+# * consider what happens in worst case scenarios
+#   - network goes away in the middle of a run
+#     leaving the server still running its query
+#   - other?
+# * make log file name configurable?
 
 
 from __future__ import print_function
@@ -44,7 +37,7 @@ import yaml
 from prettytable import PrettyTable
 
 
-def async_query(cursor, wiki, query):
+def async_query(cursor, wiki, query, log):
     '''
     meant to be run as a thread, execute a query via the specified cursor,
     don't bother to return the results, just read and throw them away
@@ -64,8 +57,8 @@ def async_query(cursor, wiki, query):
             # this means it has been shot (probably), in any case we don't care
             # 1317: Query execution was interrupted
             # 2013: Lost connection to MySQL server during query
-            print("Async Query: lost connection or query execution interrupted on wiki "
-                  "%s (%s:%s)" % (wiki, ex[0], ex[1]))
+            log.info("Async Query: lost connection or query execution interrupted on wiki "
+                     "%s (%s:%s)", wiki, ex[0], ex[1])
         else:
             raise MySQLdb.Error(("Async Query: exception running query on wiki %s (%s:%s)" % (
                 wiki, ex[0], ex[1])))
@@ -85,7 +78,7 @@ class QueryInfo(object):
         # get_db_creds
         self.dbuser = None
         self.dbpasswd = None
-        if verbose:
+        if verbose or dryrun:
             log_type = 'verbose'
         else:
             log_type = 'normal'
@@ -142,7 +135,7 @@ class QueryInfo(object):
         '''
         command = [php, 'display_wgdbcreds.php', credsfile]
         if self.dryrun:
-            print("would run command:", command)
+            self.log.info("would run command: %s", command)
             return
         else:
             self.log.info("running command: %s", command)
@@ -205,7 +198,7 @@ class QueryInfo(object):
         '''
         usequery = 'USE ' + wiki + ';'
         if self.dryrun:
-            print("would run", self.prettyprint_query(usequery))
+            self.log.info("would run %s", self.prettyprint_query(usequery))
             return
         self.log.info("running %s", usequery)
         try:
@@ -213,7 +206,7 @@ class QueryInfo(object):
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
             if result is not None:
-                print("returned from fetchall:", result)
+                self.log.error("returned from fetchall: %s", result)
             raise MySQLdb.Error("exception for use %s (%s:%s)" % (wiki, ex[0], ex[1]))
 
     def start_query(self, cursor, wiki, query):
@@ -223,11 +216,11 @@ class QueryInfo(object):
         (for loose values of 'while')
         '''
         if self.dryrun:
-            print("would run", self.prettyprint_query(query).encode('utf-8'))
+            self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
             return
         self.log.info("running:")
         self.log.info(self.prettyprint_query(query).encode('utf-8'))
-        thr = threading.Thread(target=async_query, args=(cursor, wiki, query))
+        thr = threading.Thread(target=async_query, args=(cursor, wiki, query, self.log))
         thr.start()
         return thr
 
@@ -239,15 +232,16 @@ class QueryInfo(object):
         cursor, _unused = self.get_db_cursor(host)
         query = 'SHOW PROCESSLIST;'
         if self.dryrun:
-            print("would run", self.prettyprint_query(query).encode('utf-8'))
-            return
+            self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
+            return False
         self.log.info("running:")
         self.log.info(self.prettyprint_query(query).encode('utf-8'))
         try:
             cursor.execute(query)
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
-            print("exception looking for thread id on host", host, ex)
+            self.log.warning("exception looking for thread id on host %s (%s:%s)",
+                             host, ex[0], ex[1])
             return None
         self.log.info("show processlist:")
         self.log.info(self.prettyprint_rows(result, cursor.description))
@@ -263,15 +257,15 @@ class QueryInfo(object):
         the way mysql cli does
         '''
         if results is None:
-            print("no results available")
-        else:
-            headers = [desc[0] for desc in description]
-            table = PrettyTable(headers)
-            for header in headers:
-                table.align[header] = "l"
-            for entry in results:
-                table.add_row(list(entry))
-            print(table)
+            return "no results available"
+
+        headers = [desc[0] for desc in description]
+        table = PrettyTable(headers)
+        for header in headers:
+            table.align[header] = "l"
+        for entry in results:
+            table.add_row(list(entry))
+        return table
 
     def explain(self, cursor, wiki, thread_id):
         '''
@@ -280,8 +274,8 @@ class QueryInfo(object):
         '''
         explain_query = 'SHOW EXPLAIN FOR ' + thread_id + ';'
         if self.dryrun:
-            print("would run", self.prettyprint_query(explain_query).encode('utf-8'))
-            return
+            self.log.info("would run %s", self.prettyprint_query(explain_query).encode('utf-8'))
+            return None, None
         self.log.info("running:")
         self.log.info(self.prettyprint_query(explain_query).encode('utf-8'))
         try:
@@ -303,8 +297,13 @@ class QueryInfo(object):
         given a db cursor and a thread id, attempt to kill
         the thread and deal with errors
         '''
+        kill_query = 'KILL ' + thread_id
+        if self.dryrun:
+            self.log.info("would run %s", self.prettyprint_query(kill_query).encode('utf-8'))
+            return None, None
+
         try:
-            cursor.execute('KILL ' + thread_id)
+            cursor.execute(kill_query)
             kill_result = cursor.fetchall()
             self.log.info("result from kill: %s", kill_result)
         except MySQLdb.Error as ex:
@@ -312,6 +311,17 @@ class QueryInfo(object):
             if ex[0] != 1094:
                 raise MySQLdb.Error(("exception killing query on wiki %s (%s:%s)" % (
                     wiki, ex[0], ex[1])))
+
+    def print_and_log(self, *args):
+        '''
+        print specified args (goes to stdout), and also log them
+        at info level (goes to log file)
+
+        use this for output you expect to see on any run of the
+        script regardless of verbosity
+        '''
+        print(*args)
+        self.log.info(*args)
 
     def explain_and_kill(self, host, wiki, thread_id, query):
         '''
@@ -323,10 +333,13 @@ class QueryInfo(object):
 
         explain_result, description = self.explain(cursor, wiki, thread_id)
         self.kill(cursor, wiki, thread_id)
-        print(self.prettyprint_query(query).encode('utf-8'))
-        self.prettyprint_rows(explain_result, description)
+        self.print_and_log("*** QUERY:")
+        self.print_and_log(self.prettyprint_query(query).encode('utf-8'))
+        self.print_and_log("*** SHOW EXPLAIN RESULTS:")
+        self.print_and_log(self.prettyprint_rows(explain_result, description))
 
-        cursor.close()
+        if cursor is not None:
+            cursor.close()
 
         # additional insurance.
         result = self.check_if_mysqlthr_exists(host, thread_id)
@@ -334,9 +347,8 @@ class QueryInfo(object):
         if result is None or result:
             # we had a problem checking, or the thread is still there
             # and presumably the kill failed
-            print("quitting while we're behind; run the following on host {host}:".format(
-                host=host))
-            print("echo 'kill {thread_id}' | mysql --skip-ssl")
+            self.log.error("quitting while we're behind; run the following on host %s", host)
+            self.log.error("echo 'kill {thread_id}' | mysql --skip-ssl")
             raise MySQLdb.Error("query thread {id} still running".format(id=thread_id))
 
     def run_on_wiki(self, host, wiki, wiki_settings):
@@ -344,7 +356,7 @@ class QueryInfo(object):
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
         '''
-        print("wiki:", wiki)
+        self.print_and_log("*** WIKI:", wiki)
         queries = self.fillin_query_template(wiki_settings)
         for query in queries:
             self.log.info("*** Starting new query check")
@@ -366,7 +378,7 @@ class QueryInfo(object):
         run queries on all wikis for specified server, after
         filling in the query template
         '''
-        print("host:", host)
+        self.print_and_log("*** HOST:", host)
         for wiki in wikis_info:
             self.run_on_wiki(host, wiki, wikis_info[wiki])
 
@@ -376,7 +388,7 @@ class QueryInfo(object):
         the query template filled in appropriately
         '''
         for shard in self.settings['servers']:
-            print("info for shard", shard)
+            self.print_and_log("*** SHARD:", shard)
             for host in self.settings['servers'][shard]['hosts']:
                 self.run_on_server(host, self.settings['servers'][shard]['wikis'])
 
@@ -412,6 +424,16 @@ Settings file format:
 Content should be yaml, describing servers, wikis and variable names and values.
 Variable names must correspond to he variables in the query file, although
 they may be in any case. See samplesettings.yaml for an example.
+
+Output:
+
+With verbose mode enabled, all logging messages get written to a file in the
+current working directory, 'explain_errors.log'.
+
+All errors or warnings are written to stderr, in addition to possibly being
+logged to a file (see above).
+
+All regular output from the script is written to stdout.
 
 Arguments:
     --yamlfile   (-y)   File with yaml-formatted list of db servers, wiki db names
