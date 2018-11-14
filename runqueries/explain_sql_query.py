@@ -32,6 +32,8 @@ from __future__ import print_function
 import os
 import getopt
 import json
+import logging
+import logging.config
 import re
 import sys
 import threading
@@ -62,10 +64,10 @@ def async_query(cursor, wiki, query):
             # this means it has been shot (probably), in any case we don't care
             # 1317: Query execution was interrupted
             # 2013: Lost connection to MySQL server during query
-            print("lost connection or query esecution interrupted on wiki %s (%s:%s)" % (
-                wiki, ex[0], ex[1]))
+            print("Async Query: lost connection or query execution interrupted on wiki "
+                  "%s (%s:%s)" % (wiki, ex[0], ex[1]))
         else:
-            raise MySQLdb.Error(("exception running query on wiki %s (%s:%s)" % (
+            raise MySQLdb.Error(("Async Query: exception running query on wiki %s (%s:%s)" % (
                 wiki, ex[0], ex[1])))
 
 
@@ -83,6 +85,11 @@ class QueryInfo(object):
         # get_db_creds
         self.dbuser = None
         self.dbpasswd = None
+        if verbose:
+            log_type = 'verbose'
+        else:
+            log_type = 'normal'
+        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
 
     @staticmethod
@@ -137,15 +144,13 @@ class QueryInfo(object):
         if self.dryrun:
             print("would run command:", command)
             return
-        elif self.verbose:
-            print("running command:", command)
+        else:
+            self.log.info("running command: %s", command)
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error)
-            sys.exit(1)
-        if self.verbose:
-            print("got db creds:", output)
+            raise MySQLdb.Error("Errors encountered: %s" % error)
+        self.log.info("got db creds: %s", output)
         creds = json.loads(output)
         if 'wgDBuser' not in creds or not creds['wgDBuser']:
             raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
@@ -202,8 +207,7 @@ class QueryInfo(object):
         if self.dryrun:
             print("would run", self.prettyprint_query(usequery))
             return
-        if self.verbose:
-            print("running", usequery)
+        self.log.info("running %s", usequery)
         try:
             cursor.execute(usequery)
             result = cursor.fetchall()
@@ -221,9 +225,8 @@ class QueryInfo(object):
         if self.dryrun:
             print("would run", self.prettyprint_query(query).encode('utf-8'))
             return
-        if self.verbose:
-            print("running:")
-            print(self.prettyprint_query(query).encode('utf-8'))
+        self.log.info("running:")
+        self.log.info(self.prettyprint_query(query).encode('utf-8'))
         thr = threading.Thread(target=async_query, args=(cursor, wiki, query))
         thr.start()
         return thr
@@ -238,18 +241,16 @@ class QueryInfo(object):
         if self.dryrun:
             print("would run", self.prettyprint_query(query).encode('utf-8'))
             return
-        if self.verbose:
-            print("running:")
-            print(self.prettyprint_query(query).encode('utf-8'))
+        self.log.info("running:")
+        self.log.info(self.prettyprint_query(query).encode('utf-8'))
         try:
             cursor.execute(query)
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
             print("exception looking for thread id on host", host, ex)
             return None
-        if self.verbose:
-            print("show processlist:")
-            self.prettyprint_rows(result, cursor.description)
+        self.log.info("show processlist:")
+        self.log.info(self.prettyprint_rows(result, cursor.description))
         for row in result:
             if row[0] == thread_id:
                 return True
@@ -281,9 +282,8 @@ class QueryInfo(object):
         if self.dryrun:
             print("would run", self.prettyprint_query(explain_query).encode('utf-8'))
             return
-        if self.verbose:
-            print("running:")
-            print(self.prettyprint_query(explain_query).encode('utf-8'))
+        self.log.info("running:")
+        self.log.info(self.prettyprint_query(explain_query).encode('utf-8'))
         try:
             cursor.execute(explain_query)
             description = cursor.description
@@ -306,8 +306,7 @@ class QueryInfo(object):
         try:
             cursor.execute('KILL ' + thread_id)
             kill_result = cursor.fetchall()
-            if self.verbose:
-                print("result from kill:", kill_result)
+            self.log.info("result from kill: %s", kill_result)
         except MySQLdb.Error as ex:
             # 1094:Unknown thread id: <thread_id>
             if ex[0] != 1094:
@@ -331,8 +330,7 @@ class QueryInfo(object):
 
         # additional insurance.
         result = self.check_if_mysqlthr_exists(host, thread_id)
-        if self.verbose:
-            print("check if query still running:", result)
+        self.log.info("check if query still running: %s", result)
         if result is None or result:
             # we had a problem checking, or the thread is still there
             # and presumably the kill failed
@@ -349,6 +347,7 @@ class QueryInfo(object):
         print("wiki:", wiki)
         queries = self.fillin_query_template(wiki_settings)
         for query in queries:
+            self.log.info("*** Starting new query check")
             cursor, thread_id = self.get_db_cursor(host)
             self.do_use_wiki(cursor, wiki)
             thr = self.start_query(cursor, wiki, query)
@@ -445,6 +444,37 @@ def check_mandatory_args(yamlfile, queryfile, credsfile):
         usage("Mandatory argument 'queryfile' not specified")
     if credsfile is None:
         usage("Mandatory argument 'credsfile' not specified")
+
+
+logging.config.dictConfig({
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': "[%(levelname)s]: %(message)s"
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'stream': sys.stdout,
+            'formatter': 'simple'
+        },
+    },
+    'loggers': {
+        'verbose': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True
+        },
+        'normal': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': True
+        }
+    }
+})
 
 
 def do_main():
