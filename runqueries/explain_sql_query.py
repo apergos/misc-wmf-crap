@@ -128,12 +128,12 @@ class QueryInfo(object):
         result = ''.join(lines)
         return result
 
-    def get_db_creds(self, credsfile):
+    def get_db_creds(self, php, credsfile):
         '''
         initialize db credentials by this icky execution of a
         php script etc. gross.
         '''
-        command = ['/usr/bin/php', 'display_wgdbcreds.php', credsfile]
+        command = [php, 'display_wgdbcreds.php', credsfile]
         if self.dryrun:
             print("would run command:", command)
             return
@@ -424,6 +424,8 @@ Arguments:
                         default: none
     --credsfile  (-c)   php file with MediaWiki creds for wgdbuser and wgdbpassword
                         default: none
+    --php        (-p)   path to php command
+                        default: /usr/bin//php
 Flags:
     --dryrun  (-d)    Don't execute any queries but show what would be done
     --verbose (-v)    Display progress messages as queries are executed on the wikis
@@ -433,6 +435,18 @@ Flags:
     sys.exit(1)
 
 
+def check_mandatory_args(yamlfile, queryfile, credsfile):
+    '''
+    verify that all mandatory args are specified
+    '''
+    if yamlfile is None:
+        usage("Mandatory argument 'yamlfile' not specified")
+    if queryfile is None:
+        usage("Mandatory argument 'queryfile' not specified")
+    if credsfile is None:
+        usage("Mandatory argument 'credsfile' not specified")
+
+
 def do_main():
     '''
     entry point
@@ -440,13 +454,14 @@ def do_main():
     yamlfile = None
     queryfile = None
     credsfile = None
+    php = '/usr/bin/php'
     dryrun = False
     verbose = False
 
     try:
         (options, remainder) = getopt.gnu_getopt(
-            sys.argv[1:], 'y:q:c:dvh', ['yamlfile=', 'queryfile=', 'credsfile=',
-                                        'dryrun', 'verbose', 'help'])
+            sys.argv[1:], 'y:q:c:p:dvh', ['yamlfile=', 'queryfile=', 'credsfile=', 'php=',
+                                          'dryrun', 'verbose', 'help'])
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))
 
@@ -457,6 +472,8 @@ def do_main():
             queryfile = val
         elif opt in ['-c', '--credsfile']:
             credsfile = val
+        elif opt in ['-p', '--php']:
+            php = val
         elif opt in ['-h', '--help']:
             usage("Help for this script")
         elif opt in ['-d', '--dryrun']:
@@ -467,15 +484,10 @@ def do_main():
     if remainder:
         usage("Unknown option(s) specified: <%s>" % remainder[0])
 
-    if yamlfile is None:
-        usage("Mandatory argument 'yamlfile' not specified")
-    if queryfile is None:
-        usage("Mandatory argument 'queryfile' not specified")
-    if credsfile is None:
-        usage("Mandatory argument 'credsfile' not specified")
+    check_mandatory_args(yamlfile, queryfile, credsfile)
 
     query = QueryInfo(yamlfile, queryfile, dryrun, verbose)
-    query.get_db_creds(credsfile)
+    query.get_db_creds(php, credsfile)
     query.run()
 
 
