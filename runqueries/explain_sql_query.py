@@ -11,6 +11,23 @@ and db cursor.
 """
 
 
+# TODOs:
+# * (some) verbose messages to one output channel,
+#   the bare minimum (query text for show explain
+#   and results, along with db hostname, wiki) in
+#   another output channel? Maybe severe issues
+#   (exceptions that cause the program to quit,
+#   failed kills) to go to a third which is always
+#   the console?
+# * check other exceptions that can be raised
+#   by mysql calls and see if there's anything
+#   unexpected
+#   consider what happens in worst case scenarios
+#     * network goes away in the middle of a run
+#       leaving the server still running its query
+#     * other?
+
+
 from __future__ import print_function
 import os
 import getopt
