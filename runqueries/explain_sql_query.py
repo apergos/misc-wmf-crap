@@ -456,15 +456,21 @@ logging.config.dictConfig({
     },
     'handlers': {
         'console': {
-            'level': 'INFO',
+            'level': 'WARNING',
             'class': 'logging.StreamHandler',
-            'stream': sys.stdout,
+            'stream': sys.stderr,
+            'formatter': 'simple'
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'explain_errors.log',
             'formatter': 'simple'
         },
     },
     'loggers': {
         'verbose': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': True
         },
