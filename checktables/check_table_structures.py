@@ -476,6 +476,10 @@ class TableDiffs(object):
 
         masters = self.dbinfo.get_masters()
         for shard_master in masters:
+            if shard_master not in results:
+                # this db (and so the whole shard) did not have any of them
+                # wikis in our list to check
+                continue
             shard_master_results = results[shard_master]
             for wiki in shard_master_results:
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
@@ -663,6 +667,10 @@ class TableInfo(object):
         '''
         results = {}
         for dbhost in self.dbinfo.dbhosts:
+            wikis_todo = self.dbinfo.get_wikis_for_dbhost(dbhost, wikilist)
+            if not wikis_todo:
+                continue
+
             if dbhost not in results:
                 results[dbhost] = {}
             if self.dryrun:
@@ -673,7 +681,6 @@ class TableInfo(object):
                     # problem host, move on
                     continue
             self.check_version(dbcursor, dbhost)
-            wikis_todo = self.dbinfo.get_wikis_for_dbhost(dbhost, wikilist)
             self.log.info("for dbhost %s checking wikis %s", dbhost, ','.join(wikis_todo))
             for wiki in wikis_todo:
                 results[dbhost][wiki] = self.check_tables(wiki, dbcursor)
