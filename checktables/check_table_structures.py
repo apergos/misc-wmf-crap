@@ -78,12 +78,9 @@ class DbInfo(object):
     database user credentials, etc
     are managed here
     '''
-    def __init__(self, dbhosts, domain, source_of_truth, dryrun, verbose):
+    def __init__(self, dbhosts, domain, dryrun, verbose):
         self.dbhosts = dbhosts
         self.domain = domain
-        # used if we want to compare all hosts against one single db server
-        # even across wikis etc.
-        self.source_of_truth = source_of_truth
         self.dryrun = dryrun
         self.dbuser = None
         self.dbpasswd = None
@@ -276,6 +273,8 @@ class TableDiffs(object):
         self.wiki = None
         self.dbhost = None
         self.master = None
+        # used if we want to compare all hosts against one single db server
+        # even across wikis etc.
 
     @staticmethod
     def indent(count):
@@ -324,7 +323,7 @@ class TableDiffs(object):
             params[fields[0]] = val
         return params
 
-    def display_parameter_diffs(self, master_table, repl_table, table):
+    def display_parameter_diffs(self, master_table, repl_table, table, wiki):
         '''
         display all differences in properties in a table on master, replica
         '''
@@ -348,41 +347,41 @@ class TableDiffs(object):
             if master_params_missing:
                 print("table", table, "has master parameters",
                       " ".join(master_params_missing),
-                      "missing on replica", self.dbhost, "wiki", self.wiki)
+                      "missing on replica", self.dbhost, "wiki", wiki)
             if repl_params_missing:
                 print("table", table, "has parameters",
                       " ".join(repl_params_missing),
-                      "extra on replica", self.dbhost, "wiki", self.wiki)
+                      "extra on replica", self.dbhost, "wiki", wiki)
             if param_diffs:
                 print("table", table, "has parameter value differences",
                       " ".join(param_diffs),
-                      "on replica", self.dbhost, "wiki", self.wiki)
+                      "on replica", self.dbhost, "wiki", wiki)
 
-    def display_key_diffs(self, master_table, repl_table, table):
+    def display_key_diffs(self, master_table, repl_table, table, wiki):
         '''
         display all differences in keys in a table on master, replica
         '''
         for key in master_table['keys']:
             if key not in repl_table['keys']:
                 print("table", table, "has key", key,
-                      "missing from replica", self.dbhost, "wiki", self.wiki)
+                      "missing from replica", self.dbhost, "wiki", wiki)
         for key in repl_table['keys']:
             if key not in master_table['keys']:
                 print("table", table, "has key", key,
-                      "extra on replica", self.dbhost, "wiki", self.wiki)
+                      "extra on replica", self.dbhost, "wiki", wiki)
 
-    def display_column_diffs(self, master_table, repl_table, table):
+    def display_column_diffs(self, master_table, repl_table, table, wiki):
         '''
         display all column differences in a table on master, replica
         '''
         for column in master_table['columns']:
             if column not in repl_table['columns']:
                 print("table", table, "has column", column,
-                      "missing from replica", self.dbhost, "wiki", self.wiki)
+                      "missing from replica", self.dbhost, "wiki", wiki)
         for column in repl_table['columns']:
             if column not in master_table['columns']:
                 print("table", table, "has column", column,
-                      "extra on replica", self.dbhost, "wiki", self.wiki)
+                      "extra on replica", self.dbhost, "wiki", wiki)
         for column in master_table['columns']:
             if column not in repl_table['columns']:
                 continue
@@ -390,7 +389,7 @@ class TableDiffs(object):
             print("repl table", table, "column", column, "structure mismatch",
                   repl_table['columns'][column])
 
-    def display_table_diffs(self, master_table, repl_table, table):
+    def display_table_diffs(self, master_table, repl_table, table, wiki):
         '''
         display all differences between tables on master and replica
         '''
@@ -401,40 +400,43 @@ class TableDiffs(object):
         if not repl_table:
             print("table", table, "missing on replica")
             return
-        self.display_column_diffs(master_table, repl_table, table)
-        self.display_key_diffs(master_table, repl_table, table)
-        self.display_parameter_diffs(master_table, repl_table, table)
+        self.display_column_diffs(master_table, repl_table, table, wiki)
+        self.display_key_diffs(master_table, repl_table, table, wiki)
+        self.display_parameter_diffs(master_table, repl_table, table, wiki)
 
-    def display_wikidb_diff(self, results, wiki):
+    def display_wikidb_diff(self, results, wiki, main_master, main_wiki):
         '''
         find and display all table structure differences between dbhost and master
         '''
         if self.dbhost not in results or wiki not in results[self.dbhost]:
             print("No tables for wiki on", self.dbhost)
             return
-        self.wiki = wiki
-        repl_table_structure = results[self.dbhost][self.wiki]
-        master_table_structure = results[self.master][self.wiki]
+        repl_table_structure = results[self.dbhost][wiki]
+        if main_wiki:
+            # we compare everything to table structure of one wiki
+            master_table_structure = results[main_master][main_wiki]
+        else:
+            master_table_structure = results[main_master][wiki]
         for table in master_table_structure:
             if table not in repl_table_structure:
-                print("table", table, "missing from replica", self.dbhost, "wiki", self.wiki)
+                print("table", table, "missing from replica", self.dbhost, "wiki", wiki)
         for table in repl_table_structure:
             if table not in master_table_structure:
-                print("table", table, "extra on replica", self.dbhost, "wiki", self.wiki)
+                print("table", table, "extra on replica", self.dbhost, "wiki", wiki)
         for table in master_table_structure:
             if table not in repl_table_structure:
                 continue
             self.display_table_diffs(master_table_structure[table],
-                                     repl_table_structure[table], table)
+                                     repl_table_structure[table], table, wiki)
 
-    def display_diffs(self, results):
+    def display_diffs_master_per_shard(self, results):
         '''
-        show differences between structure on master and replicas for
-        each wiki
+        for each master on a shard, get the wiki table
+        structure on the master, compare the table structure
+        of that wiki on all replicas in that shard
         '''
         masters = self.dbinfo.get_masters()
         for master in masters:
-            self.master = master
             master_results = results[master]
             for wiki in master_results:
                 print('master:', master)
@@ -452,7 +454,57 @@ class TableDiffs(object):
                     if dbhost == master:
                         continue
                     self.dbhost = dbhost
-                    self.display_wikidb_diff(results, wiki)
+                    self.display_wikidb_diff(results, wiki, master, None)
+
+    def display_diffs_master_all_shards(self, results, main_master, main_wiki):
+        '''
+        display table structure diffs taken against one wiki on a specified
+        master
+        example: use db2010 enwiki table structure against which to compare
+        the table structure of all the s5 wikis on the s5 db hosts, even though
+        enwiki is not in s5
+        better exmple: decide enwiki on db2010 has the table structure you
+        want on all wikis everywhere and compare them all against it
+        '''
+        master_results = results[main_master]
+        masters = self.dbinfo.get_masters()
+        print("all wiki tables will be checked against {db}:{wiki}".format(
+            db=main_master, wiki=main_wiki))
+
+        if self.verbose:
+            self.display_table_structure(master_results[main_wiki])
+
+        masters = self.dbinfo.get_masters()
+        for shard_master in masters:
+            shard_master_results = results[shard_master]
+            for wiki in shard_master_results:
+                dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
+                for dbhost in dbhosts_todo:
+                    dbhost_results = results[dbhost]
+                    if self.verbose:
+                        print('replica:', dbhost)
+                        self.display_table_structure(dbhost_results[wiki])
+                print('DIFFS ****')
+                for dbhost in dbhosts_todo:
+                    if dbhost == main_master:
+                        continue
+                    self.dbhost = dbhost
+                    self.display_wikidb_diff(results, wiki, main_master, main_wiki)
+
+    def display_diffs(self, results, main_master, main_wiki):
+        '''
+        show differences between structure on master and replicas for
+        each wiki
+        if 'main_master', is not None, then we use that as the
+        sole master and compare other dbs (masters or not) across all wikis
+        to it; in this case main_wiki must also be supplied and that
+        wiki's tables on the sole master will be used as the standard against
+        which to diff everything else
+        '''
+        if main_master:
+            self.display_diffs_master_all_shards(results, main_master, main_wiki)
+        else:
+            self.display_diffs_master_per_shard(results)
 
 
 class TableInfo(object):
@@ -602,7 +654,7 @@ class TableInfo(object):
 
         return self.format_create_table_info(results)
 
-    def show_tables_for_wikis(self, wikilist):
+    def show_tables_for_wikis(self, wikilist, main_master, main_wiki):
         '''
         for all wikis in our list to do, get table information
         for them on each db server that hosts them, and display
@@ -627,7 +679,7 @@ class TableInfo(object):
                 results[dbhost][wiki] = self.check_tables(wiki, dbcursor)
             if not self.dryrun:
                 dbcursor.close()
-        self.tablediffs.display_diffs(results)
+        self.tablediffs.display_diffs(results, main_master, main_wiki)
 
 
 class OptSetup(object):
@@ -651,7 +703,7 @@ class OptSetup(object):
 Usage: check_table_structures.py  --dbauth <path> --tables name[,name...]
     [--wikifile <path>|--wikilist name[,name...]]
     [--dbconfig <path>|--dbhosts host[,host...]]
-    [--master <host>]
+    [--master <host>] [--main_wiki <name>]
     [--php <path>]
     [--dryrun] [--verbose] [--help]
 
@@ -662,35 +714,42 @@ replicas agains the master in each case.
 It also writes out the version of mysql/mariadb for each db server.
 
 Options:
-    --dbauth   (-a)   File with db user name and password
-                      default: none
-    --dbconfig (-c)   Config file with db hostnames per shard such as db-eqiad.php
-                      default: none
-    --dbhosts  (-h)   List of db hostnames, comma-separated
-                      If such a list is provided, it will be presumed that all wikidbs
-                      specified can be found on all the db hostnames given
-                      Default: none, get list from db server config file
-    --master   (-m)   Hostname of the single db server that is presumed to have the
-                      right table structure(s), against which all other dbs will
-                      be checked; if omitted, the db master for each shard will
-                      be used and each shard configured will be reported separately
-                      Default: none
-    --settings (-s)   File with global settings which may include:
-                      dbauth, dbconfig, wikifile, wikilist, php, domain
-                      Default: none
-    --tables   (-t)   List of table names, comma-separated
-                      Default: none
-    --php      (-p)   path to php command, used for grabbing db creds and possibly
-                      list of db servers from php files
-                      Default: /usr/bin/php
-    --wikifile (-f)   File containing a list of wiki db names, one per line
-                      Default: all.dblist in current directory
-    --wikilist (-l)   List of wiki db names, comma-separated
-                      Default: none, read list from file
+    --dbauth    (-a)   File with db user name and password
+                       default: none
+    --dbconfig  (-c)   Config file with db hostnames per shard such as db-eqiad.php
+                       default: none
+    --dbhosts   (-h)   List of db hostnames, comma-separated
+                       If such a list is provided, it will be presumed that all wikidbs
+                       specified can be found on all the db hostnames given
+                       Default: none, get list from db server config file
+    --master    (-m)   Hostname of the single db server that is presumed to have the
+                       right table structure(s), against which all other dbs will
+                       be checked; if omitted, the db master for each shard will
+                       be used and each shard configured will be reported separately
+                       If this arg is set then main_wiki must also be set.
+                       This host must serve the db for the main_wiki specified.
+                       Default: none
+    --main_wiki (-W)   Name of the wikidb against which tables on all other wikis
+                       will be compared; if omitted, tables will only be compared
+                       against the master for the same wiki
+                       If this arg is set then master must also be set
+                       Default: none
+    --settings  (-s)   File with global settings which may include:
+                       dbauth, dbconfig, wikifile, wikilist, php, domain
+                       Default: none
+    --tables    (-t)   List of table names, comma-separated
+                       Default: none
+    --php       (-p)   path to php command, used for grabbing db creds and possibly
+                       list of db servers from php files
+                       Default: /usr/bin/php
+    --wikifile  (-f)   File containing a list of wiki db names, one per line
+                       Default: all.dblist in current directory
+    --wikilist  (-l)   List of wiki db names, comma-separated
+                       Default: none, read list from file
 
 Flags:
-    --dryrun  (-d)    Don't execute queries but show what would be done
-    --help    (-h)    show this message
+    --dryrun    (-d)   Don't execute queries but show what would be done
+    --help      (-h)   show this message
 """
         sys.stderr.write(usage_message)
         sys.exit(1)
@@ -712,7 +771,9 @@ Flags:
         elif opt in ['-l', '--wikilist']:
             args['wikilist'] = val.split(',')
         elif opt in ['-m', '--master']:
-            args['source_of_truth'] = val
+            args['main_master'] = val
+        elif opt in ['-W', '--main_wiki']:
+            args['main_wiki'] = val
         elif opt in ['-p', '--php']:
             args['php'] = val
         elif opt in ['-s', '--settings']:
@@ -750,6 +811,15 @@ Flags:
                        "specified on command line or in config file")
         if args['wikilist'] is None:
             self.usage("No list of wikis provided to process")
+        count = 0
+        if args['main_wiki'] is not None:
+            count += 1
+        if args['main_master'] is not None:
+            count += 1
+        if count == 1:
+            self.usage("--master and --main_wiki must be provided together")
+        if args['wikilist'] is None:
+            self.usage("No list of wikis provided to process")
 
     def get_opts(self):
         '''
@@ -759,14 +829,16 @@ Flags:
         '''
         args = {}
         args['dbhosts'] = None
-        args['master'] = None
+        args['main_master'] = None
+        args['main_wiki'] = None
         args['dryrun'] = False
         args['verbose'] = False
 
         try:
             (options, remainder) = getopt.gnu_getopt(
                 sys.argv[1:], 'a:c:h:f:l:m:p:s:t:vh',
-                ['dbauth=', 'dbconfig=', 'dbhosts=', 'master=', 'php=', 'settings=', 'tables=',
+                ['dbauth=', 'dbconfig=', 'dbhosts=', 'master=', 'main_wiki=',
+                 'php=', 'settings=', 'tables=',
                  'wikifile=', 'wikilist=',
                  'dryrun', 'verbose', 'help'])
         except getopt.GetoptError as err:
@@ -848,12 +920,11 @@ def do_main():
     setup = OptSetup()
     args = setup.args
 
-    dbinfo = DbInfo(args['dbhosts'], args['domain'], args['master'],
-                    args['dryrun'], args['verbose'])
+    dbinfo = DbInfo(args['dbhosts'], args['domain'], args['dryrun'], args['verbose'])
     dbinfo.get_dbcreds(args['php'], args['dbauth'])
     dbinfo.setup_dbhosts(args['php'], args['dbconfig'])
     tableinfo = TableInfo(dbinfo, args['tables'], args['dryrun'], args['verbose'])
-    tableinfo.show_tables_for_wikis(args['wikilist'])
+    tableinfo.show_tables_for_wikis(args['wikilist'], args['main_master'], args['main_wiki'])
 
 
 if __name__ == '__main__':
