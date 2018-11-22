@@ -78,9 +78,12 @@ class DbInfo(object):
     database user credentials, etc
     are managed here
     '''
-    def __init__(self, dbhosts, domain, dryrun, verbose):
+    def __init__(self, dbhosts, domain, source_of_truth, dryrun, verbose):
         self.dbhosts = dbhosts
         self.domain = domain
+        # used if we want to compare all hosts against one single db server
+        # even across wikis etc.
+        self.source_of_truth = source_of_truth
         self.dryrun = dryrun
         self.dbuser = None
         self.dbpasswd = None
@@ -302,16 +305,58 @@ class TableDiffs(object):
                 for param in table_structure[table]['parameters']:
                     print(self.indent(11), param.lstrip(') '))
 
+    @staticmethod
+    def params_to_dict(text):
+        '''
+        given a line of text like
+        ) ENGINE=InnoDB AUTO_INCREMENT=1480546 DEFAULT CHARSET=binary ROW_FORMAT=COMPRESSED
+        turn it into a dict of keys where some values may be None (thanks MySQL for making 'DEFAULT
+        CHARSET have a space in it >_<) and return it
+        '''
+        entries = text.lstrip(') ').split()
+        params = {}
+        for entry in entries:
+            fields = entry.split('=')
+            if len(fields) > 1:
+                val = fields[1]
+            else:
+                val = None
+            params[fields[0]] = val
+        return params
+
     def display_parameter_diffs(self, master_table, repl_table, table):
         '''
         display all differences in properties in a table on master, replica
         '''
-        if master_table['parameters'] != repl_table['parameters']:
-            print("table", table, "has parameters",
-                  "|".join([param.lstrip(') ') for param in repl_table['parameters']]),
-                  "different on replica", self.dbhost, "wiki", self.wiki)
-            print("master shows:",
-                  "|".join([param.lstrip(') ') for param in master_table['parameters']]))
+        master_params = self.params_to_dict(master_table['parameters'][0])
+        ignore = ['AUTO_INCREMENT', 'DEFAULT']
+        if master_table['parameters'][0] != repl_table['parameters'][0]:
+            master_params = self.params_to_dict(master_table['parameters'][0])
+            repl_params = self.params_to_dict(repl_table['parameters'][0])
+            master_params_missing = []
+            repl_params_missing = []
+            param_diffs = []
+            for field in master_params:
+                if field not in repl_params:
+                    master_params_missing.append(field)
+                elif master_params[field] != repl_params[field] and field not in ignore:
+                    param_diffs.append('{field}: master {mval}, repl {rval}'.format(
+                        field=field, mval=master_params[field], rval=repl_params[field]))
+            for field in repl_params:
+                if field not in master_params:
+                    repl_params_missing.append(field)
+            if master_params_missing:
+                print("table", table, "has master parameters",
+                      " ".join(master_params_missing),
+                      "missing on replica", self.dbhost, "wiki", self.wiki)
+            if repl_params_missing:
+                print("table", table, "has parameters",
+                      " ".join(repl_params_missing),
+                      "extra on replica", self.dbhost, "wiki", self.wiki)
+            if param_diffs:
+                print("table", table, "has parameter value differences",
+                      " ".join(param_diffs),
+                      "on replica", self.dbhost, "wiki", self.wiki)
 
     def display_key_diffs(self, master_table, repl_table, table):
         '''
@@ -606,6 +651,7 @@ class OptSetup(object):
 Usage: check_table_structures.py  --dbauth <path> --tables name[,name...]
     [--wikifile <path>|--wikilist name[,name...]]
     [--dbconfig <path>|--dbhosts host[,host...]]
+    [--master <host>]
     [--php <path>]
     [--dryrun] [--verbose] [--help]
 
@@ -624,6 +670,11 @@ Options:
                       If such a list is provided, it will be presumed that all wikidbs
                       specified can be found on all the db hostnames given
                       Default: none, get list from db server config file
+    --master   (-m)   Hostname of the single db server that is presumed to have the
+                      right table structure(s), against which all other dbs will
+                      be checked; if omitted, the db master for each shard will
+                      be used and each shard configured will be reported separately
+                      Default: none
     --settings (-s)   File with global settings which may include:
                       dbauth, dbconfig, wikifile, wikilist, php, domain
                       Default: none
@@ -639,7 +690,6 @@ Options:
 
 Flags:
     --dryrun  (-d)    Don't execute queries but show what would be done
-    --verbose (-v)    Display progress messages as queries are executed on the wikis
     --help    (-h)    show this message
 """
         sys.stderr.write(usage_message)
@@ -661,6 +711,8 @@ Flags:
             args['wikifile'] = val
         elif opt in ['-l', '--wikilist']:
             args['wikilist'] = val.split(',')
+        elif opt in ['-m', '--master']:
+            args['source_of_truth'] = val
         elif opt in ['-p', '--php']:
             args['php'] = val
         elif opt in ['-s', '--settings']:
@@ -707,13 +759,14 @@ Flags:
         '''
         args = {}
         args['dbhosts'] = None
+        args['master'] = None
         args['dryrun'] = False
         args['verbose'] = False
 
         try:
             (options, remainder) = getopt.gnu_getopt(
-                sys.argv[1:], 'a:c:h:f:l:p:s:t:vh',
-                ['dbauth=', 'dbconfig=', 'dbhosts=', 'php=', 'settings=', 'tables=',
+                sys.argv[1:], 'a:c:h:f:l:m:p:s:t:vh',
+                ['dbauth=', 'dbconfig=', 'dbhosts=', 'master=', 'php=', 'settings=', 'tables=',
                  'wikifile=', 'wikilist=',
                  'dryrun', 'verbose', 'help'])
         except getopt.GetoptError as err:
@@ -795,7 +848,8 @@ def do_main():
     setup = OptSetup()
     args = setup.args
 
-    dbinfo = DbInfo(args['dbhosts'], args['domain'], args['dryrun'], args['verbose'])
+    dbinfo = DbInfo(args['dbhosts'], args['domain'], args['master'],
+                    args['dryrun'], args['verbose'])
     dbinfo.get_dbcreds(args['php'], args['dbauth'])
     dbinfo.setup_dbhosts(args['php'], args['dbconfig'])
     tableinfo = TableInfo(dbinfo, args['tables'], args['dryrun'], args['verbose'])
