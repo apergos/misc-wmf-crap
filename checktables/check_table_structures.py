@@ -84,8 +84,8 @@ class DbInfo(object):
         self.dryrun = dryrun
         self.dbuser = None
         self.dbpasswd = None
-        self.wikis_to_shards = None
-        self.dbhosts_by_shard = None
+        self.wikis_to_sections = None
+        self.dbhosts_by_section = None
         if verbose:
             log_type = 'verbose'
         else:
@@ -125,7 +125,7 @@ class DbInfo(object):
         if we don't have an explicit list passed in
         '''
         if self.dbhosts is None:
-            self.dbhosts, self.wikis_to_shards, self.dbhosts_by_shard = (
+            self.dbhosts, self.wikis_to_sections, self.dbhosts_by_section = (
                 self.get_dbhosts_from_file(php, dbconfigfile))
         if self.dbhosts is None:
             raise ValueError("No list of db hosts provided to process")
@@ -133,18 +133,18 @@ class DbInfo(object):
 
     def is_master(self, dbhost):
         '''
-        check if a dbhost is a master for some shard; if no shard info
+        check if a dbhost is a master for some section; if no section info
         is available, assume the answer is yes
-        this assumes no host is a master on one shard and a replica on others
+        this assumes no host is a master on one section and a replica on others
         '''
         listed = False
-        if not self.dbhosts_by_shard:
+        if not self.dbhosts_by_section:
             return True
-        for shard in self.dbhosts_by_shard:
+        for section in self.dbhosts_by_section:
             # master is in 'slot 0'
-            if dbhost == self.dbhosts_by_shard[shard].keys()[0]:
+            if dbhost == self.dbhosts_by_section[section].keys()[0]:
                 return True
-            elif dbhost in self.dbhosts_by_shard[shard]:
+            elif dbhost in self.dbhosts_by_section[section]:
                 listed = True
         if listed:
             return False
@@ -158,7 +158,7 @@ class DbInfo(object):
 
     def get_dbhosts_from_file(self, php, dbconfigfile):
         '''
-        get list of dbs and shard-related info from wgLBFactoryConf stuff
+        get list of dbs and section-related info from wgLBFactoryConf stuff
         in a file
         '''
         if not dbconfigfile:
@@ -171,10 +171,10 @@ class DbInfo(object):
         if 'sectionsByDB' not in wglbfactoryconf:
             raise ValueError("missing sectionsByDB from wgLBFactoryConf, bad config?")
         dbs = []
-        for shard in wglbfactoryconf['sectionLoads']:
-            if shard.startswith('s') or shard == 'DEFAULT':
+        for section in wglbfactoryconf['sectionLoads']:
+            if section.startswith('s') or section == 'DEFAULT':
                 # only process these, anything else can be skipped
-                dbs.extend(list(wglbfactoryconf['sectionLoads'][shard]))
+                dbs.extend(list(wglbfactoryconf['sectionLoads'][section]))
         return dbs, wglbfactoryconf['sectionsByDB'], wglbfactoryconf['sectionLoads']
 
     def get_wglbfactoryconf(self, php, dbconfigfile):
@@ -195,32 +195,32 @@ class DbInfo(object):
     def get_dbhosts_for_wiki(self, wiki):
         '''
         get list of db servers that have a specified wiki db
-        if we have no shard information for the wiki and no
-        info about a DEFAULT shard, assume wiki is served
+        if we have no section information for the wiki and no
+        info about a DEFAULT section, assume wiki is served
         by all db servers
         '''
-        if not self.wikis_to_shards or not self.dbhosts_by_shard:
+        if not self.wikis_to_sections or not self.dbhosts_by_section:
             # assume all wikis are handled by all dbhosts
             return self.dbhosts
-        if wiki not in self.wikis_to_shards:
-            shard = 'DEFAULT'
+        if wiki not in self.wikis_to_sections:
+            section = 'DEFAULT'
         else:
-            shard = self.wikis_to_shards[wiki]
-        if shard not in self.dbhosts_by_shard:
+            section = self.wikis_to_sections[wiki]
+        if section not in self.dbhosts_by_section:
             return None
-        return list(self.dbhosts_by_shard[shard])
+        return list(self.dbhosts_by_section[section])
 
-    def get_wikis_for_shard(self, shard, wikilist):
+    def get_wikis_for_section(self, section, wikilist):
         '''
         get list of wikis from given list of wikis that are
-        in a specified shard
+        in a specified section
         '''
-        if shard == 'DEFAULT':
-            # there will be no list, return everything not named in wiki-shard mapping
-            return [wiki for wiki in wikilist if wiki not in self.wikis_to_shards]
-        # shard should have wikis in the mapping, return those
-        return [wiki for wiki in wikilist if wiki in self.wikis_to_shards and
-                self.wikis_to_shards[wiki] == shard]
+        if section == 'DEFAULT':
+            # there will be no list, return everything not named in wiki-section mapping
+            return [wiki for wiki in wikilist if wiki not in self.wikis_to_sections]
+        # section should have wikis in the mapping, return those
+        return [wiki for wiki in wikilist if wiki in self.wikis_to_sections and
+                self.wikis_to_sections[wiki] == section]
 
     def get_wikis_for_dbhost(self, dbhost, wikilist):
         '''
@@ -228,13 +228,13 @@ class DbInfo(object):
         previously read from a file, or if no such information is available
         for the given host, assume all wikis are hosted by it
         '''
-        if not self.wikis_to_shards or not self.dbhosts_by_shard:
+        if not self.wikis_to_sections or not self.dbhosts_by_section:
             # assume all db hosts handle all wikis
             return wikilist
         wikis = []
-        for shard in self.dbhosts_by_shard:
-            if dbhost in self.dbhosts_by_shard[shard]:
-                wikis.extend(self.get_wikis_for_shard(shard, wikilist))
+        for section in self.dbhosts_by_section:
+            if dbhost in self.dbhosts_by_section[section]:
+                wikis.extend(self.get_wikis_for_section(section, wikilist))
         return list(set(wikis))
 
     def get_cursor(self, dbhost):
@@ -429,11 +429,11 @@ class TableDiffs(object):
             self.display_table_diffs(master_table_structure[table],
                                      repl_table_structure[table], table, wiki)
 
-    def display_diffs_master_per_shard(self, results):
+    def display_diffs_master_per_section(self, results):
         '''
-        for each master on a shard, get the wiki table
+        for each master on a section, get the wiki table
         structure on the master, compare the table structure
-        of that wiki on all replicas in that shard
+        of that wiki on all replicas in that section
         '''
         masters = self.dbinfo.get_masters()
         for master in masters:
@@ -456,7 +456,7 @@ class TableDiffs(object):
                     self.dbhost = dbhost
                     self.display_wikidb_diff(results, wiki, master, None)
 
-    def display_diffs_master_all_shards(self, results, main_master, main_wiki):
+    def display_diffs_master_all_sections(self, results, main_master, main_wiki):
         '''
         display table structure diffs taken against one wiki on a specified
         master
@@ -475,13 +475,13 @@ class TableDiffs(object):
             self.display_table_structure(master_results[main_wiki])
 
         masters = self.dbinfo.get_masters()
-        for shard_master in masters:
-            if shard_master not in results:
-                # this db (and so the whole shard) did not have any of them
+        for section_master in masters:
+            if section_master not in results:
+                # this db (and so the whole section) did not have any of them
                 # wikis in our list to check
                 continue
-            shard_master_results = results[shard_master]
-            for wiki in shard_master_results:
+            section_master_results = results[section_master]
+            for wiki in section_master_results:
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 for dbhost in dbhosts_todo:
                     dbhost_results = results[dbhost]
@@ -506,9 +506,9 @@ class TableDiffs(object):
         which to diff everything else
         '''
         if main_master:
-            self.display_diffs_master_all_shards(results, main_master, main_wiki)
+            self.display_diffs_master_all_sections(results, main_master, main_wiki)
         else:
-            self.display_diffs_master_per_shard(results)
+            self.display_diffs_master_per_section(results)
 
 
 class TableInfo(object):
@@ -723,7 +723,7 @@ It also writes out the version of mysql/mariadb for each db server.
 Options:
     --dbauth    (-a)   File with db user name and password
                        default: none
-    --dbconfig  (-c)   Config file with db hostnames per shard such as db-eqiad.php
+    --dbconfig  (-c)   Config file with db hostnames per section such as db-eqiad.php
                        default: none
     --dbhosts   (-h)   List of db hostnames, comma-separated
                        If such a list is provided, it will be presumed that all wikidbs
@@ -731,8 +731,8 @@ Options:
                        Default: none, get list from db server config file
     --master    (-m)   Hostname of the single db server that is presumed to have the
                        right table structure(s), against which all other dbs will
-                       be checked; if omitted, the db master for each shard will
-                       be used and each shard configured will be reported separately
+                       be checked; if omitted, the db master for each section will
+                       be used and each section configured will be reported separately
                        If this arg is set then main_wiki must also be set.
                        This host must serve the db for the main_wiki specified.
                        Default: none
