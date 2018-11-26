@@ -17,6 +17,7 @@ from collections import OrderedDict
 
 #SSH = '/usr/bin/ssh'
 SSH = '/home/ariel/bin/sshes'
+SUDO_USER = 'www-data'
 
 
 class ConfigReader(object):
@@ -79,10 +80,7 @@ class QueryRunner(object):
         self.config = config
         self.dryrun = dryrun
         self.verbose = verbose
-        if self.check_if_multiversion():
-            self.multiversion = True
-        else:
-            self.multiversion = False
+        self.multiversion = self.check_if_multiversion()
 
     def get_page_info(self, pageid):
         '''
@@ -92,11 +90,8 @@ class QueryRunner(object):
         url = api_url_base + "?action=query&pageids={pageid}&format=json".format(
             pageid=pageid)
         command = ["/usr/bin/curl", "-s", url]
-        if self.dryrun:
-            print "would run command:", command
+        if not display_command_info(command, self.dryrun, self.verbose):
             return '0', 'MainPage'
-        elif self.verbose:
-            print "running command:", command
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
@@ -122,14 +117,9 @@ class QueryRunner(object):
         '''
         mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
         remote_command = ['/bin/ls', mw_script_location]
-        ssh_prefix = [SSH, "{host}".format(host=self.config['mwhost'])]
-        command = ssh_prefix + remote_command
-
-        if self.dryrun:
-            print "would run command:", command
-            return 'http://example.com/w/api.php'
-        elif self.verbose:
-            print "running command:", command
+        command = build_command(remote_command, ssh_host=self.config['mwhost'])
+        if not display_command_info(command, self.dryrun, self.verbose):
+            return ''
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
@@ -143,26 +133,20 @@ class QueryRunner(object):
         given a wiki database name, figure out the url for api requests;
         this requires running a MediaWiki php maintenance script. meh
         '''
-        remote_command = ['sudo', '-u', 'www-data', self.config['php']]
         maintenance_script = "getConfiguration.php"
-        if self.multiversion:
-            mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
-            remote_command.extend([mw_script_location, maintenance_script])
-        else:
-            remote_command.extend(["%s/maintenance/%s" % (
-                self.config['mwrepo'], maintenance_script)])
+        mw_script_location, remote_command = get_maint_script_path(
+            self.multiversion, self.config, maintenance_script)
 
         pull_vars = ["wgCanonicalServer", "wgScriptPath"]
-        remote_command.extend(["--wiki={dbname}".format(dbname=self.wikidb),
-                               "--format=json", "'--regex={vars}'".format(vars="|".join(pull_vars))])
-        ssh_prefix = [SSH, "{host}".format(host=self.config['mwhost'])]
-        command = ssh_prefix + remote_command
+        remote_command.extend([
+            "--wiki={dbname}".format(dbname=self.wikidb),
+            "--format=json", "'--regex={vars}'".format(vars="|".join(pull_vars))])
 
-        if self.dryrun:
-            print "would run command:", command
+        command = build_command(
+            remote_command, ssh_host=self.config['mwhost'], sudo_user=SUDO_USER,
+            mwscript=mw_script_location, php=self.config['php'])
+        if not display_command_info(command, self.dryrun, self.verbose):
             return 'http://example.com/w/api.php'
-        elif self.verbose:
-            print "running command:", command
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
@@ -193,31 +177,23 @@ class QueryRunner(object):
         about halfway through the revs
         this requires running a MediaWiki php maintenance script. meh
         '''
-        mysql_command = [self.config['php']]
         maintenance_script = "mysql.php"
-        if self.multiversion:
-            mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
-            mysql_command.extend([mw_script_location, maintenance_script])
-        else:
-            mysql_command.extend(["%s/maintenance/%s" % (
-                self.config['mwrepo'], maintenance_script)])
+        mw_script_location, mysql_command = get_maint_script_path(
+            self.multiversion, self.config, maintenance_script)
         mysql_command.extend(["--wiki={dbname}".format(dbname=self.wikidb),
                               "--wikidb={dbname}".format(dbname=self.wikidb),
                               "--group=vslow", "--", "--silent"])
         query = ("select rev_id from revision where " +
                  "rev_page={pageid} order by rev_id desc limit 1 offset {revcounthalf};".format(
                      pageid=pageid, revcounthalf=int(revcount)/2 + 1))
-        ssh_prefix = SSH + " {host} ".format(host=self.config['mwhost'])
-        sudo_prefix = " sudo -u www-data "
-        remote_mysql_command = ssh_prefix + sudo_prefix + " ".join(mysql_command)
+        remote_mysql_command = build_command(
+            mysql_command, ssh_host=self.config['mwhost'], sudo_user=SUDO_USER,
+            mwscript=mw_script_location, php=self.config['php'])
+        remote_mysql_command = " ".join(remote_mysql_command)
         command = "echo '{query}' | {mysql}".format(
             query=query, mysql=remote_mysql_command)
-
-        if self.dryrun:
-            print "would run command:", command
+        if not display_command_info(command, self.dryrun, self.verbose):
             return '0'
-        elif self.verbose:
-            print "running command:", command
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
@@ -261,15 +237,12 @@ class RevCounter(object):
         stubs. if it doesn't, we have some really broken crap out there
         and ought to hear about it in any case
         '''
-        remote_command = " /bin/ls {dumpsdir}/{wiki}"
-        ssh_prefix = SSH + " {host}".format(host=self.config['dumpshost'])
-        command = ssh_prefix.format(host=self.config['dumpshost']) + remote_command.format(
+        remote_command = " /bin/ls {dumpsdir}/{wiki}".format(
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb)
-        if self.dryrun:
-            print "would run command:", command
+        command = build_command(remote_command, ssh_host=self.config['dumpshost'])
+        if not display_command_info(command, self.dryrun, self.verbose):
             return '99999999'
-        elif self.verbose:
-            print "running command:", command
+
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
@@ -293,14 +266,11 @@ class RevCounter(object):
                           "{dumpsdir}/{wiki}/{rundate}/{wiki}-{rundate}-stub-meta-history.xml.gz " +
                           "| /usr/local/bin/revsperpage all " + str(self.REVCUTOFF) +
                           "| sort -k 2 -nr | head -1'")
-        ssh_prefix = SSH + " {host} "
-        command = ssh_prefix.format(host=self.config['dumpshost']) + remote_command.format(
+        remote_command = remote_command.format(
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb, rundate=rundate)
-        if self.dryrun:
-            print "would run command:", command
+        command = build_command(remote_command, ssh_host=self.config['dumpshost'])
+        if not display_command_info(command, self.dryrun, self.verbose):
             return 0, 0
-        elif self.verbose:
-            print "running command:", command
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
@@ -440,6 +410,74 @@ def run(config, wikidb, dryrun, verbose):
     startpage, endpage = get_start_end_pageids(int(bigpage_id))
     section = get_section(config, wikidb, dryrun, verbose)
     display(namespace, title, bigpage_id, revid, startpage, endpage, section, wikidb)
+
+
+def prepend_command(base_command, prepends):
+    '''
+    add new parts of a command onto the front,
+    doing the right thing if the base command is list or string
+    '''
+    if isinstance(base_command, str):
+        command = ' '.join(prepends) + ' ' + base_command
+    else:
+        command = prepends + base_command
+    return command
+
+
+def get_maint_script_path(multiversion, config, maint_script_basename):
+    '''
+    if we are using a multiversion setup, return the path to mwscript and the
+    unaltered maintenance script path
+    if we are not, return None for mwscript and an adjusted path for the maint
+    script
+    '''
+    if multiversion:
+        mw_script_location = os.path.join(config['multiversion'], "MWScript.php")
+        maint_script_cmd = [maint_script_basename]
+    else:
+        mw_script_location = None
+        maint_script_cmd = ["%s/maintenance/%s" % (config['mwrepo'], maint_script_basename)]
+    return mw_script_location, maint_script_cmd
+
+
+def build_command(command_base, ssh_host=None, sudo_user=None, mwscript=None, php=None):
+    '''
+    given a command, add the ssh, sudo and mwscript pieces as needed
+    if command is a mw script to be run by php, the path to the script
+    must already be set correctly in command_base (i.e. full path for
+    php or relative path for mwscript), this method will not check that
+    '''
+    command = command_base[:]
+    if mwscript:
+        mwscript_cmd = [mwscript]
+        command = prepend_command(command, mwscript_cmd)
+    if php:
+        phpcmd = ['/usr/bin/php7.0']
+        command = prepend_command(command, phpcmd)
+    if sudo_user:
+        sudocmd = ['sudo', '-u', sudo_user]
+        command = prepend_command(command, sudocmd)
+    if ssh_host:
+        sshcmd = [SSH, ssh_host]
+        command = prepend_command(command, sshcmd)
+    return command
+
+
+def display_command_info(command, dryrun, verbose):
+    '''
+    print the appropriate info message for the command that will or would
+    be run, returning True if the command is to be run
+    '''
+    if isinstance(command, list):
+        printable_cmd = " ".join(command)
+    else:
+        printable_cmd = command
+    if dryrun:
+        print "would run command:", printable_cmd
+        return False
+    elif verbose:
+        print "running command:", printable_cmd
+    return True
 
 
 def do_main():
