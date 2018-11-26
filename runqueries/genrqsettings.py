@@ -13,7 +13,7 @@ ssh to the dumps host
 ssh to mw host
    see if mwscript exists or not
 ssh to mw host
-   get wgCanonicalServer and wgScriptPath
+   get $wgCanonicalServer and $wgScriptPath
    use those to put together the mw api path
 curl to get info for the page with most revisions, using the api
 ssh to mw host to get the id of the revision about halfway through the page history
@@ -372,44 +372,58 @@ Flags:
     sys.exit(1)
 
 
-def get_dbconfig_from_file(config, dryrun, verbose):
+def get_dbconfig_from_file(config, multiversion, wikidb, dryrun, verbose):
     '''
     get section-related info from wgLBFactoryConf stuff in a file
     we must ssh to the remote mw host, run a php command to get the
     contents of the variable(s) we want, and process the output.
     so gross.
     '''
-    # this is done remotely. yuck
-    remote_command = [config['php'], 'display_wgLBFactoryConf.php', config['dbconfig']]
-    ssh_prefix = [SSH, "{host}".format(host=config['mwhost'])]
-    command = ssh_prefix + remote_command
+    maintenance_script = "getConfiguration.php"
+    mw_script_location, remote_command = get_maint_script_path(
+        multiversion, config, maintenance_script)
 
-    if dryrun:
-        print "would run command:", ' '.join(command)
+    pull_var = "wgLBFactoryConf"
+    remote_command.extend([
+        "--wiki={dbname}".format(dbname=wikidb),
+        "--format=json", "'--regex={var}'".format(var=pull_var)])
+
+    command = build_command(
+        remote_command, ssh_host=config['mwhost'], sudo_user=SUDO_USER,
+        mwscript=mw_script_location, php=config['php'])
+    if not display_command_info(command, dryrun, verbose):
         return {}
-    elif verbose:
-        print "running command:", ' '.join(command)
 
     proc = Popen(command, stdout=PIPE, stderr=PIPE)
     output, error = proc.communicate()
-    if error:
+    # ignore stuff like "Warning: rename(/tmp/...) permission denied
+    if error and not error.startswith('Warning'):
         print("Errors encountered:", error)
         sys.exit(1)
     if not output:
-        raise IOError("Failed to process db config file " + config['dbconfig'])
-    wglbfactoryconf = json.loads(output, object_pairs_hook=OrderedDict)
+        raise IOError("Failed to retrieve db config from file " + config['dbconfig'])
+    try:
+        settings = json.loads(output, object_pairs_hook=OrderedDict)
+    except ValueError:
+        settings = None
+    if not settings:
+        raise IOError(
+            "Failed to get values for wgLBFactoryConf for {wiki}, got output {output}".format(
+                wiki=wikidb, output=output))
+
+    wglbfactoryconf = settings['wgLBFactoryConf']
     if 'sectionsByDB' not in wglbfactoryconf:
         raise ValueError("missing sectionsByDB from wgLBFactoryConf, bad config?")
     return wglbfactoryconf['sectionsByDB']
 
 
-def get_section(config, wikidb, dryrun, verbose):
+def get_section(config, multiversion, wikidb, dryrun, verbose):
     '''
     dig the section that the wikidb lives on,
     out of the dbconfig file and return it;
     it might be 'DEFAULT' but this is ok
     '''
-    sections_by_db = get_dbconfig_from_file(config, dryrun, verbose)
+    sections_by_db = get_dbconfig_from_file(config, multiversion, wikidb, dryrun, verbose)
     if wikidb not in sections_by_db:
         return 'DEFAULT'
     return sections_by_db[wikidb]
@@ -427,7 +441,7 @@ def run(config, wikidb, dryrun, verbose):
     namespace, title = qrunner.get_page_info(bigpage_id)
     revid = qrunner.get_midpoint_revid(bigpage_id, revcount)
     startpage, endpage = get_start_end_pageids(int(bigpage_id))
-    section = get_section(config, wikidb, dryrun, verbose)
+    section = get_section(config, qrunner.multiversion, wikidb, dryrun, verbose)
     display(namespace, title, bigpage_id, revid, startpage, endpage, section, wikidb)
 
 
