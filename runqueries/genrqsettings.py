@@ -15,11 +15,6 @@ from subprocess import Popen, PIPE
 from collections import OrderedDict
 
 
-# TODOs
-# make sure revsperpage binary is on the right host in /usr/local/bin
-# prolly have to check what's int and what's string everywhere yuck
-
-
 class ConfigReader(object):
     '''
     read stuff that would otherwise be command line args
@@ -85,7 +80,7 @@ class QueryRunner(object):
         get namespace and title of a specific page on the wiki
         '''
         api_url_base = self.get_api_url_from_wikidb()
-        url = api_url_base + "?action=query&pageids=${pageid}&format=json".format(
+        url = api_url_base + "?action=query&pageids={pageid}&format=json".format(
             pageid=pageid)
         command = ["/usr/bin/curl", "-s", url]
         if self.dryrun:
@@ -127,7 +122,7 @@ class QueryRunner(object):
 
         pull_vars = ["wgCanonicalServer", "wgScriptPath"]
         command.extend(["--wiki={dbname}".format(dbname=self.wikidb),
-                        "--format=json", "--regex='{vars}'".format(vars="|".join(pull_vars))])
+                        "--format=json", "--regex={vars}".format(vars="|".join(pull_vars))])
 
         if self.dryrun:
             print "would run command:", command
@@ -150,9 +145,7 @@ class QueryRunner(object):
         wgscriptpath = settings['wgScriptPath']
 
         apibase = "/".join([
-            wgcanonserver.rstrip('/'),
-            wgscriptpath.rstrip('/'),
-            "api.php"])
+            wgcanonserver.rstrip('/'), wgscriptpath.strip('/'), "api.php"])
         return apibase
 
     def get_midpoint_revid(self, pageid, revcount):
@@ -171,7 +164,7 @@ class QueryRunner(object):
                 self.config['mwrepo'], maintenance_script)])
         mysql_command.extend(["--wiki={dbname}".format(dbname=self.wikidb),
                               "--wikidb={dbname}".format(dbname=self.wikidb),
-                              "--group=vslow"])
+                              "--group=vslow", "--", "--silent"])
         query = ("select rev_id from revision where " +
                  "rev_page={pageid} order by rev_id desc limit 1 offset {revcounthalf};".format(
                      pageid=pageid, revcounthalf=int(revcount)/2 + 1))
@@ -189,13 +182,10 @@ class QueryRunner(object):
         if error:
             print("Errors encountered:", error)
             sys.exit(1)
-        settings = json.loads(output)
-        if not settings or len(settings) != 2:
+        revid = output.rstrip('\n')
+        if not revid:
             raise IOError(
-                "Failed to get values for wgCanonicalServer, " +
-                "wgScriptPath for {wiki}".format(wiki=self.wikidb))
-
-        revid = None
+                "Failed to get midpoint revid for {wiki}".format(wiki=self.wikidb))
         return revid
 
 
@@ -205,12 +195,14 @@ class RevCounter(object):
     count revs per page, nd write out the ones that have more than 10k
     revisions. it's nicer than asking the dbs to do it, meh
     '''
+    SSH = '/usr/bin/ssh'
+    REVCUTOFF = 10000
+
     def __init__(self, config, wikidb, dryrun, verbose):
         self.config = config
         self.wikidb = wikidb
         self.dryrun = dryrun
         self.verbose = verbose
-        print config
 
     def get_biggest_page_info(self):
         '''
@@ -229,7 +221,7 @@ class RevCounter(object):
         and ought to hear about it in any case
         '''
         remote_command = " /bin/ls {dumpsdir}/{wiki}"
-        ssh_prefix = "/usr/bin/ssh {host}".format(host=self.config['dumpshost'])
+        ssh_prefix = self.SSH + " {host}".format(host=self.config['dumpshost'])
         command = ssh_prefix.format(host=self.config['dumpshost']) + remote_command.format(
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb)
         if self.dryrun:
@@ -258,9 +250,9 @@ class RevCounter(object):
         '''
         remote_command = ("/bin/zcat " +
                           "{dumpsdir}/{wiki}/{rundate}/{wiki}-{rundate}-stub-meta-history.xml.gz " +
-                          "| /usr/local/bin/revs_per_page/revsperpage all 10000 " +
+                          "| /usr/local/bin/revsperpage all " + str(self.REVCUTOFF) +
                           "| sort -k 2 -nr | head -1")
-        ssh_prefix = "/usr/bin/ssh {host}"
+        ssh_prefix = self.SSH + " {host} "
         command = ssh_prefix.format(host=self.config['dumpshost']) + remote_command.format(
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb, rundate=rundate)
         if self.dryrun:
@@ -276,8 +268,8 @@ class RevCounter(object):
             sys.exit(1)
         # expect the following: pageid revcount as the last line
         lines = output.splitlines()
-        pageid = lines[-1][0]
-        revcount = lines[-1][1]
+        pageid = lines[-1].split()[0]
+        revcount = lines[-1].split()[1]
         return pageid, revcount
 
 
@@ -310,7 +302,7 @@ def display(namespace, title, bigpage_id, revid, startpage, endpage, section, wi
         namespace: '{ns}'
         title: {title}"""
     print(stanza.format(wikidb=wikidb, shard=section, pageid=bigpage_id, revid=revid,
-                        start=startpage, end=endpage, ns=namespace, title=title))
+                        start=startpage, end=endpage, ns=namespace, title=title.encode('utf-8')))
 
 
 def usage(message=None):
@@ -407,7 +399,7 @@ def run(config, wikidb, dryrun, verbose):
     qrunner = QueryRunner(wikidb, config, dryrun, verbose)
     namespace, title = qrunner.get_page_info(bigpage_id)
     revid = qrunner.get_midpoint_revid(bigpage_id, revcount)
-    startpage, endpage = get_start_end_pageids(bigpage_id)
+    startpage, endpage = get_start_end_pageids(int(bigpage_id))
     section = get_section(config, wikidb, dryrun, verbose)
     display(namespace, title, bigpage_id, revid, startpage, endpage, section, wikidb)
 
