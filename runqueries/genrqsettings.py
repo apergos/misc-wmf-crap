@@ -11,15 +11,18 @@ ssh to the dumps host
 ssh to the dumps host
    from that stubs file, find page with the most revisions, display pageid, revcount
 ssh to mw host
-   see if mwscript exists or not
+   see if mwscript exists or not -- must be done before any mw maint scripts can be run
 ssh to mw host
    get $wgCanonicalServer and $wgScriptPath
-   use those to put together the mw api path
-curl to get info for the page with most revisions, using the api
-ssh to mw host to get the id of the revision about halfway through the page history
-ssh to mw host to get the db configuration info ($wgLBFactoryConf)
+use those values to put together the mw api path
+curl to get info for the page with most revisions, using the api -- could be done via library
+ssh to mw host
+   get the id of the revision about halfway through the page history
+ssh to mw host
+   get the db configuration info ($wgLBFactoryConf)
 use all of the above to display the configuration stanza for the show explain script
 
+Six sshes, one call to command line util.
 Yes, it's gross. Too bad.
 """
 
