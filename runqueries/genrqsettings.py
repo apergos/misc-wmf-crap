@@ -1,8 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-given a config file and the name of a wiki database, write out
+Given a config file and the name of a wiki database, write out
 a stanza that can be added to a settings file for the show
 explain script
+
+Here's the hoops we jump through for the specified wiki:
+
+ssh to the dumps host
+   get a recent dump run date for the wiki that we hope has complete stubs
+ssh to the dumps host
+   from that stubs file, find page with the most revisions, display pageid, revcount
+ssh to mw host
+   see if mwscript exists or not
+ssh to mw host
+   get wgCanonicalServer and wgScriptPath
+   use those to put together the mw api path
+curl to get info for the page with most revisions, using the api
+ssh to mw host to get the id of the revision about halfway through the page history
+ssh to mw host to get the db configuration info ($wgLBFactoryConf)
+use all of the above to display the configuration stanza for the show explain script
+
+Yes, it's gross. Too bad.
 """
 
 
@@ -18,6 +36,7 @@ from collections import OrderedDict
 #SSH = '/usr/bin/ssh'
 SSH = '/home/ariel/bin/sshes'
 SUDO_USER = 'www-data'
+MWSCRIPT = 'MWScript.php'
 
 
 class ConfigReader(object):
@@ -115,7 +134,7 @@ class QueryRunner(object):
         '''
         see if the multiversion script exists on the mw host
         '''
-        mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
+        mw_script_location = os.path.join(self.config['multiversion'], MWSCRIPT)
         remote_command = ['/bin/ls', mw_script_location]
         command = build_command(remote_command, ssh_host=self.config['mwhost'])
         if not display_command_info(command, self.dryrun, self.verbose):
@@ -432,7 +451,7 @@ def get_maint_script_path(multiversion, config, maint_script_basename):
     script
     '''
     if multiversion:
-        mw_script_location = os.path.join(config['multiversion'], "MWScript.php")
+        mw_script_location = os.path.join(config['multiversion'], MWSCRIPT)
         maint_script_cmd = [maint_script_basename]
     else:
         mw_script_location = None
