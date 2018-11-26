@@ -15,6 +15,10 @@ from subprocess import Popen, PIPE
 from collections import OrderedDict
 
 
+#SSH = '/usr/bin/ssh'
+SSH = '/home/ariel/bin/sshes'
+
+
 class ConfigReader(object):
     '''
     read stuff that would otherwise be command line args
@@ -24,7 +28,7 @@ class ConfigReader(object):
     override built-in defaults (now set in config structure)
     '''
     SETTINGS = ['dbconfig', 'php', 'dumpshost', 'dumpsdir',
-                'multiversion', 'mwrepo']
+                'multiversion', 'mwhost', 'mwrepo']
 
     def __init__(self, configfile):
         defaults = self.get_config_defaults()
@@ -49,6 +53,7 @@ class ConfigReader(object):
             'dumpshost': '',
             'dumpspath': '/dumps',
             'multiversion': '',
+            'mwhost': '',
             'mwrepo': '/srv/mediawiki'
         }
 
@@ -74,6 +79,10 @@ class QueryRunner(object):
         self.config = config
         self.dryrun = dryrun
         self.verbose = verbose
+        if self.check_if_multiversion():
+            self.multiversion = True
+        else:
+            self.multiversion = False
 
     def get_page_info(self, pageid):
         '''
@@ -107,22 +116,14 @@ class QueryRunner(object):
         title = title.replace(' ', '_')
         return namespace, title
 
-    def get_api_url_from_wikidb(self):
+    def check_if_multiversion(self):
         '''
-        given a wiki database name, figure out the url for api requests;
-        this requires running a MediaWiki php maintenance script. meh
+        see if the multiversion script exists on the mw host
         '''
         mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
-        command = [self.config['php']]
-        maintenance_script = "getConfiguration.php"
-        if os.path.exists(mw_script_location):
-            command.extend([mw_script_location, maintenance_script])
-        else:
-            command.extend(["%s/maintenance/%s" % (self.config['mwrepo'], maintenance_script)])
-
-        pull_vars = ["wgCanonicalServer", "wgScriptPath"]
-        command.extend(["--wiki={dbname}".format(dbname=self.wikidb),
-                        "--format=json", "--regex={vars}".format(vars="|".join(pull_vars))])
+        remote_command = ['/bin/ls', mw_script_location]
+        ssh_prefix = [SSH, "{host}".format(host=self.config['mwhost'])]
+        command = ssh_prefix + remote_command
 
         if self.dryrun:
             print "would run command:", command
@@ -133,13 +134,51 @@ class QueryRunner(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
+            # "/bin/ls: cannot access..."
+            return ''
+        return output.rstrip()
+
+    def get_api_url_from_wikidb(self):
+        '''
+        given a wiki database name, figure out the url for api requests;
+        this requires running a MediaWiki php maintenance script. meh
+        '''
+        remote_command = ['sudo', '-u', 'www-data', self.config['php']]
+        maintenance_script = "getConfiguration.php"
+        if self.multiversion:
+            mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
+            remote_command.extend([mw_script_location, maintenance_script])
+        else:
+            remote_command.extend(["%s/maintenance/%s" % (
+                self.config['mwrepo'], maintenance_script)])
+
+        pull_vars = ["wgCanonicalServer", "wgScriptPath"]
+        remote_command.extend(["--wiki={dbname}".format(dbname=self.wikidb),
+                               "--format=json", "'--regex={vars}'".format(vars="|".join(pull_vars))])
+        ssh_prefix = [SSH, "{host}".format(host=self.config['mwhost'])]
+        command = ssh_prefix + remote_command
+
+        if self.dryrun:
+            print "would run command:", command
+            return 'http://example.com/w/api.php'
+        elif self.verbose:
+            print "running command:", command
+
+        proc = Popen(command, stdout=PIPE, stderr=PIPE)
+        output, error = proc.communicate()
+        # ignore stuff like "Warning: rename(/tmp/...) permission denied
+        if error and not error.startswith('Warning'):
             print("Errors encountered:", error)
             sys.exit(1)
-        settings = json.loads(output)
+        try:
+            settings = json.loads(output)
+        except ValueError:
+            settings = None
         if not settings or len(settings) != 2:
             raise IOError(
                 "Failed to get values for wgCanonicalServer, " +
-                "wgScriptPath for {wiki}".format(wiki=self.wikidb))
+                "wgScriptPath for {wiki}, got output {output}".format(
+                    wiki=self.wikidb, output=output))
 
         wgcanonserver = settings['wgCanonicalServer']
         wgscriptpath = settings['wgScriptPath']
@@ -154,10 +193,10 @@ class QueryRunner(object):
         about halfway through the revs
         this requires running a MediaWiki php maintenance script. meh
         '''
-        mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
         mysql_command = [self.config['php']]
         maintenance_script = "mysql.php"
-        if os.path.exists(mw_script_location):
+        if self.multiversion:
+            mw_script_location = os.path.join(self.config['multiversion'], "MWScript.php")
             mysql_command.extend([mw_script_location, maintenance_script])
         else:
             mysql_command.extend(["%s/maintenance/%s" % (
@@ -168,8 +207,11 @@ class QueryRunner(object):
         query = ("select rev_id from revision where " +
                  "rev_page={pageid} order by rev_id desc limit 1 offset {revcounthalf};".format(
                      pageid=pageid, revcounthalf=int(revcount)/2 + 1))
-        command = "echo '{query}' | {mysqlcmd}".format(
-            query=query, mysqlcmd=" ".join(mysql_command))
+        ssh_prefix = SSH + " {host} ".format(host=self.config['mwhost'])
+        sudo_prefix = " sudo -u www-data "
+        remote_mysql_command = ssh_prefix + sudo_prefix + " ".join(mysql_command)
+        command = "echo '{query}' | {mysql}".format(
+            query=query, mysql=remote_mysql_command)
 
         if self.dryrun:
             print "would run command:", command
@@ -179,7 +221,7 @@ class QueryRunner(object):
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
-        if error:
+        if error and not error.startswith("Warning:"):
             print("Errors encountered:", error)
             sys.exit(1)
         revid = output.rstrip('\n')
@@ -195,7 +237,6 @@ class RevCounter(object):
     count revs per page, nd write out the ones that have more than 10k
     revisions. it's nicer than asking the dbs to do it, meh
     '''
-    SSH = '/usr/bin/ssh'
     REVCUTOFF = 10000
 
     def __init__(self, config, wikidb, dryrun, verbose):
@@ -221,7 +262,7 @@ class RevCounter(object):
         and ought to hear about it in any case
         '''
         remote_command = " /bin/ls {dumpsdir}/{wiki}"
-        ssh_prefix = self.SSH + " {host}".format(host=self.config['dumpshost'])
+        ssh_prefix = SSH + " {host}".format(host=self.config['dumpshost'])
         command = ssh_prefix.format(host=self.config['dumpshost']) + remote_command.format(
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb)
         if self.dryrun:
@@ -248,11 +289,11 @@ class RevCounter(object):
         having the date of the specific dump run, scat the stubs meta history file as stdin
         to the rev counter, sort and get the page id with the most revs
         '''
-        remote_command = ("/bin/zcat " +
+        remote_command = ("'/bin/zcat " +
                           "{dumpsdir}/{wiki}/{rundate}/{wiki}-{rundate}-stub-meta-history.xml.gz " +
                           "| /usr/local/bin/revsperpage all " + str(self.REVCUTOFF) +
-                          "| sort -k 2 -nr | head -1")
-        ssh_prefix = self.SSH + " {host} "
+                          "| sort -k 2 -nr | head -1'")
+        ssh_prefix = SSH + " {host} "
         command = ssh_prefix.format(host=self.config['dumpshost']) + remote_command.format(
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb, rundate=rundate)
         if self.dryrun:
@@ -266,7 +307,7 @@ class RevCounter(object):
         if error:
             print("Errors encountered:", error)
             sys.exit(1)
-        # expect the following: pageid revcount as the last line
+        # expect pageid revcount as the last line
         lines = output.splitlines()
         pageid = lines[-1].split()[0]
         revcount = lines[-1].split()[1]
@@ -342,35 +383,32 @@ Flags:
     sys.exit(1)
 
 
-def get_wglbfactoryconf(config, dryrun, verbose):
+def get_dbconfig_from_file(config, dryrun, verbose):
     '''
-    run a php script to source the dbconfig file and write the
-    contents as json, which we can read and convert to a python
-    dict. yuck.
+    get section-related info from wgLBFactoryConf stuff in a file
+    we must ssh to the remote mw host, run a php command to get the
+    contents of the variable(s) we want, and process the output.
+    so gross.
     '''
-    command = [config['php'], 'display_wgLBFactoryConf.php', config['dbconfig']]
+    # this is done remotely. yuck
+    remote_command = [config['php'], 'display_wgLBFactoryConf.php', config['dbconfig']]
+    ssh_prefix = [SSH, "{host}".format(host=config['mwhost'])]
+    command = ssh_prefix + remote_command
+
     if dryrun:
         print "would run command:", ' '.join(command)
         return {}
-    if verbose:
+    elif verbose:
         print "running command:", ' '.join(command)
+
     proc = Popen(command, stdout=PIPE, stderr=PIPE)
     output, error = proc.communicate()
     if error:
         print("Errors encountered:", error)
         sys.exit(1)
-    return json.loads(output, object_pairs_hook=OrderedDict)
-
-
-def get_dbconfig_from_file(config, dryrun, verbose):
-    '''
-    get section-related info from wgLBFactoryConf stuff in a file
-    '''
-    if not os.path.exists(config['dbconfig']):
-        raise ValueError("No such file {filename}".format(filename=config['dbconfig']))
-    wglbfactoryconf = get_wglbfactoryconf(config, dryrun, verbose)
-    if dryrun:
-        return {}
+    if not output:
+        raise IOError("Failed to process db config file " + config['dbconfig'])
+    wglbfactoryconf = json.loads(output, object_pairs_hook=OrderedDict)
     if 'sectionsByDB' not in wglbfactoryconf:
         raise ValueError("missing sectionsByDB from wgLBFactoryConf, bad config?")
     return wglbfactoryconf['sectionsByDB']
