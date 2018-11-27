@@ -29,6 +29,7 @@ import logging
 import logging.config
 import re
 import sys
+import ConfigParser
 import threading
 from subprocess import Popen, PIPE
 import warnings
@@ -45,7 +46,7 @@ def async_query(cursor, wiki, query, log):
     can show explain on its mysql process
     '''
     try:
-        cursor.execute(query)
+        cursor.execute(query.encode('utf-8'))
         # we don't expect to get through this, we should be killed long before,
         # but let's have this here to be nice
         row = cursor.fetchone()
@@ -69,21 +70,21 @@ class QueryInfo(object):
     munge and run queries on db servers for specific wikis
     '''
 
-    def __init__(self, yamlfile, queryfile, dryrun, verbose):
-        self.settings = self.get_settings_from_yaml(yamlfile)
-        self.queries = self.get_queries_from_file(queryfile)
+    def __init__(self, yamlfile, queryfile, configfile, dryrun, verbose):
         self.verbose = verbose
         self.dryrun = dryrun
-        # db credentials should be set up later by calling
-        # get_db_creds
-        self.dbuser = None
-        self.dbpasswd = None
         if verbose or dryrun:
             log_type = 'verbose'
         else:
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
+        self.settings = self.get_settings_from_yaml(yamlfile)
+        self.queries = self.get_queries_from_file(queryfile)
+        # choose the first wiki we find in the yaml file, for db creds.
+        # yes, this means all your wikis better have the same credentials
+        wikidb = self.get_first_wiki()
+        self.dbcreds = get_dbcreds(configfile, self.log, wikidb, dryrun)
 
     @staticmethod
     def get_settings_from_yaml(yamlfile):
@@ -118,6 +119,13 @@ class QueryInfo(object):
             line = ' ' + line
         return line
 
+    def get_first_wiki(self):
+        '''
+        find and return the first wiki db name in the settings
+        '''
+        shards = self.settings['servers'].keys()
+        return self.settings['servers'][shards[0]]['wikis'].keys()[0]
+
     def prettyprint_query(self, querystring):
         '''
         strip newline from end of non-comment lines of the querystring, print the
@@ -127,30 +135,6 @@ class QueryInfo(object):
         lines = [self.pad_line(line) for line in lines]
         result = ''.join(lines)
         return result
-
-    def get_db_creds(self, php, credsfile):
-        '''
-        initialize db credentials by this icky execution of a
-        php script etc. gross.
-        '''
-        command = [php, 'display_wgdbcreds.php', credsfile]
-        if self.dryrun:
-            self.log.info("would run command: %s", command)
-            return
-        else:
-            self.log.info("running command: %s", command)
-        proc = Popen(command, stdout=PIPE, stderr=PIPE)
-        output, error = proc.communicate()
-        if error:
-            raise MySQLdb.Error("Errors encountered: %s" % error)
-        self.log.info("got db creds: %s", output)
-        creds = json.loads(output)
-        if 'wgDBuser' not in creds or not creds['wgDBuser']:
-            raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
-        if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
-            raise ValueError("Missing value for wgDBpassword, bad dbcreds file?")
-        self.dbuser = creds['wgDBuser']
-        self.dbpasswd = creds['wgDBpassword']
 
     def get_db_cursor(self, dbhost):
         '''
@@ -170,7 +154,7 @@ class QueryInfo(object):
         try:
             dbconn = MySQLdb.connect(
                 host=host, port=port,
-                user=self.dbuser, passwd=self.dbpasswd)
+                user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
             return dbconn.cursor(), dbconn.thread_id()
         except MySQLdb.Error as ex:
             raise MySQLdb.Error("failed to connect to or get cursor from %s:%s, %s %s" % (
@@ -202,7 +186,7 @@ class QueryInfo(object):
             return
         self.log.info("running %s", usequery)
         try:
-            cursor.execute(usequery)
+            cursor.execute(usequery.encode('utf-8'))
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
             if result is not None:
@@ -217,7 +201,7 @@ class QueryInfo(object):
         '''
         if self.dryrun:
             self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
-            return
+            return None
         self.log.info("running:")
         self.log.info(self.prettyprint_query(query).encode('utf-8'))
         thr = threading.Thread(target=async_query, args=(cursor, wiki, query, self.log))
@@ -237,7 +221,7 @@ class QueryInfo(object):
         self.log.info("running:")
         self.log.info(self.prettyprint_query(query).encode('utf-8'))
         try:
-            cursor.execute(query)
+            cursor.execute(query.encode('utf-8'))
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
             self.log.warning("exception looking for thread id on host %s (%s:%s)",
@@ -279,7 +263,7 @@ class QueryInfo(object):
         self.log.info("running:")
         self.log.info(self.prettyprint_query(explain_query).encode('utf-8'))
         try:
-            cursor.execute(explain_query)
+            cursor.execute(explain_query.encode('utf-8'))
             description = cursor.description
             explain_result = cursor.fetchall()
         except MySQLdb.Error as ex:
@@ -300,10 +284,10 @@ class QueryInfo(object):
         kill_query = 'KILL ' + thread_id
         if self.dryrun:
             self.log.info("would run %s", self.prettyprint_query(kill_query).encode('utf-8'))
-            return None, None
+            return
 
         try:
-            cursor.execute(kill_query)
+            cursor.execute(kill_query.encode('utf-8'))
             kill_result = cursor.fetchall()
             self.log.info("result from kill: %s", kill_result)
         except MySQLdb.Error as ex:
@@ -393,6 +377,83 @@ class QueryInfo(object):
                 self.run_on_server(host, self.settings['servers'][shard]['wikis'])
 
 
+SETTINGS = ['multiversion', 'mwrepo', 'php']
+
+
+def config_setup(configfile):
+    '''
+    return a dict of config settings and their (possibly empty but not None) values
+    '''
+    defaults = get_config_defaults()
+    conf = ConfigParser.SafeConfigParser(defaults)
+    conf.read(configfile)
+    if not conf.has_section('settings'):
+        sys.stderr.write("The mandatory configuration section "
+                         "'settings' was not defined.\n")
+        raise ConfigParser.NoSectionError('settings')
+    settings = parse_config(conf)
+    return settings
+
+
+def get_config_defaults():
+    '''
+    get and return default config settings for this crapola
+    '''
+    return {
+        'multiversion': '',
+        'mwrepo': '/srv/mediawiki',
+        'php': '/usr/bin/php'
+    }
+
+
+def parse_config(conf):
+    '''
+    grab values from configuration and assign them to appropriate variables
+    '''
+    args = {}
+    # could be true if we re only using the defaults
+    if not conf.has_section('settings'):
+        conf.add_section('settings')
+    for setting in SETTINGS:
+        args[setting] = conf.get('settings', setting)
+    return args
+
+
+def get_dbcreds(configfile, log, wikidb, dryrun):
+    '''
+    initialize db credentials by running a MW maintenance script to get the
+    value of the user and password
+    '''
+    config = config_setup(configfile)
+    pull_vars = ["wgDBuser", "wgDBpassword"]
+    phpscript = 'getConfiguration.php'
+    if config['multiversion']:
+        mwscript = os.path.join(config['multiversion'], 'MWScript.php')
+        command = [config['php'], mwscript, phpscript]
+    else:
+        command = [config['php'],
+                   "{repo}/maintenance/{script}".format(
+                       repo=config['mwrepo'], script=phpscript)]
+
+    command.extend(["--wiki={dbname}".format(dbname=wikidb),
+                    '--format=json', '--regex={vars}'.format(vars="|".join(pull_vars))])
+    log.info("would run %s", " ".join(command))
+    if dryrun:
+        return {'wgDBuser': 'XXXXX', 'wgDBpassword': 'XXXXX'}
+    proc = Popen(command, stdout=PIPE, stderr=PIPE)
+    output, error = proc.communicate()
+    if error:
+        log.error("Errors encountered: %s", error)
+        sys.exit(1)
+    log.info("got db creds: %s", output)
+    creds = json.loads(output)
+    if 'wgDBuser' not in creds or not creds['wgDBuser']:
+        raise ValueError("Missing value for wgDBuser")
+    if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
+        raise ValueError("Missing value for wgDBpassword")
+    return creds
+
+
 def usage(message=None):
     '''
     display a helpful usage message with
@@ -403,7 +464,7 @@ def usage(message=None):
         sys.stderr.write(message)
         sys.stderr.write('\n')
     usage_message = """
-Usage: explain_sql_query.py --yamlfile <path> --queryfile <path> --credsfile <path>
+Usage: explain_sql_query.py --yamlfile <path> --queryfile <path> --configfile <path>
     [--dryrun] [--verbose] [--help]
 
 This script reads server, wiki and variable names from the specified
@@ -443,10 +504,11 @@ Arguments:
                         of upper case strings starting with $, which will have values
                         from the yaml files substituted in before the queries are run
                         default: none
-    --credsfile  (-c)   php file with MediaWiki creds for wgdbuser and wgdbpassword
+    --configfile (-c)   python-style config file with settings for the location of the
+                        MW repo, the path to the multiversion directory if any,
+                        and the path to the php binary. For more information see
+                        queryrunner-sample.conf
                         default: none
-    --php        (-p)   path to php command
-                        default: /usr/bin//php
 Flags:
     --dryrun  (-d)    Don't execute any queries but show what would be done
     --verbose (-v)    Display progress messages as queries are executed on the wikis
@@ -456,7 +518,7 @@ Flags:
     sys.exit(1)
 
 
-def check_mandatory_args(yamlfile, queryfile, credsfile):
+def check_mandatory_args(yamlfile, queryfile, configfile):
     '''
     verify that all mandatory args are specified
     '''
@@ -464,8 +526,8 @@ def check_mandatory_args(yamlfile, queryfile, credsfile):
         usage("Mandatory argument 'yamlfile' not specified")
     if queryfile is None:
         usage("Mandatory argument 'queryfile' not specified")
-    if credsfile is None:
-        usage("Mandatory argument 'credsfile' not specified")
+    if configfile is None:
+        usage("Mandatory argument 'configfile' not specified")
 
 
 logging.config.dictConfig({
@@ -511,15 +573,14 @@ def do_main():
     '''
     yamlfile = None
     queryfile = None
-    credsfile = None
-    php = '/usr/bin/php'
+    configfile = None
     dryrun = False
     verbose = False
 
     try:
         (options, remainder) = getopt.gnu_getopt(
-            sys.argv[1:], 'y:q:c:p:dvh', ['yamlfile=', 'queryfile=', 'credsfile=', 'php=',
-                                          'dryrun', 'verbose', 'help'])
+            sys.argv[1:], 'y:q:c:dvh', ['yamlfile=', 'queryfile=', 'configfile=',
+                                        'dryrun', 'verbose', 'help'])
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))
 
@@ -528,10 +589,8 @@ def do_main():
             yamlfile = val
         elif opt in ['-q', '--queryfile']:
             queryfile = val
-        elif opt in ['-c', '--credsfile']:
-            credsfile = val
-        elif opt in ['-p', '--php']:
-            php = val
+        elif opt in ['-c', '--configfile']:
+            configfile = val
         elif opt in ['-h', '--help']:
             usage("Help for this script")
         elif opt in ['-d', '--dryrun']:
@@ -542,10 +601,9 @@ def do_main():
     if remainder:
         usage("Unknown option(s) specified: <%s>" % remainder[0])
 
-    check_mandatory_args(yamlfile, queryfile, credsfile)
+    check_mandatory_args(yamlfile, queryfile, configfile)
 
-    query = QueryInfo(yamlfile, queryfile, dryrun, verbose)
-    query.get_db_creds(php, credsfile)
+    query = QueryInfo(yamlfile, queryfile, configfile, dryrun, verbose)
     query.run()
 
 
