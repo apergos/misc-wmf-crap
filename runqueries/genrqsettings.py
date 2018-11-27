@@ -322,7 +322,7 @@ def display(namespace, title, bigpage_id, revid, startpage, endpage, section, wi
     write one config stanza with the given values
     '''
     stanza = """servers:
-  shard: '{shard}'
+  {shard}:
     hosts:
       - FILL IN
     wikis:
