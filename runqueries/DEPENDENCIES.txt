@@ -1,0 +1,8 @@
+The explain_sql_query.py script requires the packages python-prettytable, python-mysqldb
+
+All of these scripts require a working MediaWiki installation; for run_sql_query.py and
+explain_sql_query.py the script should run on the host with the MediaWiki installation.
+For explain_sql_query it should run from a local host (i.e. my laptop) and ssh to
+various hosts, including the MediaWiki installed host, to do its work.
+
+
