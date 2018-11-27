@@ -340,7 +340,7 @@ class QueryInfo(object):
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
         '''
-        self.print_and_log("*** WIKI:", wiki)
+        self.print_and_log("*** WIKI: {wiki}".format(wiki=wiki))
         queries = self.fillin_query_template(wiki_settings)
         for query in queries:
             self.log.info("*** Starting new query check")
@@ -362,7 +362,7 @@ class QueryInfo(object):
         run queries on all wikis for specified server, after
         filling in the query template
         '''
-        self.print_and_log("*** HOST:", host)
+        self.print_and_log("*** HOST: {host}".format(host=host))
         for wiki in wikis_info:
             self.run_on_wiki(host, wiki, wikis_info[wiki])
 
@@ -372,7 +372,7 @@ class QueryInfo(object):
         the query template filled in appropriately
         '''
         for shard in self.settings['servers']:
-            self.print_and_log("*** SHARD:", shard)
+            self.print_and_log("*** SHARD: {shard}".format(shard=shard))
             for host in self.settings['servers'][shard]['hosts']:
                 self.run_on_server(host, self.settings['servers'][shard]['wikis'])
 
