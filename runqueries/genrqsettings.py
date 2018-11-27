@@ -50,7 +50,7 @@ class ConfigReader(object):
     command line values override config file values which
     override built-in defaults (now set in config structure)
     '''
-    SETTINGS = ['dbconfig', 'php', 'dumpshost', 'dumpsdir',
+    SETTINGS = ['php', 'dumpshost', 'dumpsdir',
                 'multiversion', 'mwhost', 'mwrepo']
 
     def __init__(self, configfile):
@@ -71,7 +71,6 @@ class ConfigReader(object):
         get and return default config settings for this crapola
         '''
         return {
-            'dbconfig': '',
             'php': '/usr/bin/php',
             'dumpshost': '',
             'dumpspath': '/dumps',
@@ -375,9 +374,9 @@ Flags:
     sys.exit(1)
 
 
-def get_dbconfig_from_file(config, multiversion, wikidb, dryrun, verbose):
+def get_dbconfig(config, multiversion, wikidb, dryrun, verbose):
     '''
-    get section-related info from wgLBFactoryConf stuff in a file
+    get section-related info from wgLBFactoryConf
     we must ssh to the remote mw host, run a php command to get the
     contents of the variable(s) we want, and process the output.
     so gross.
@@ -404,7 +403,7 @@ def get_dbconfig_from_file(config, multiversion, wikidb, dryrun, verbose):
         print("Errors encountered:", error)
         sys.exit(1)
     if not output:
-        raise IOError("Failed to retrieve db config from file " + config['dbconfig'])
+        raise IOError("Failed to retrieve db config")
     try:
         settings = json.loads(output, object_pairs_hook=OrderedDict)
     except ValueError:
@@ -422,11 +421,10 @@ def get_dbconfig_from_file(config, multiversion, wikidb, dryrun, verbose):
 
 def get_section(config, multiversion, wikidb, dryrun, verbose):
     '''
-    dig the section that the wikidb lives on,
-    out of the dbconfig file and return it;
-    it might be 'DEFAULT' but this is ok
+    dig the section that the wikidb lives on out of the db config settings
+    return it; it might be 'DEFAULT' but this is ok
     '''
-    sections_by_db = get_dbconfig_from_file(config, multiversion, wikidb, dryrun, verbose)
+    sections_by_db = get_dbconfig(config, multiversion, wikidb, dryrun, verbose)
     if wikidb not in sections_by_db:
         return 'DEFAULT'
     return sections_by_db[wikidb]
