@@ -27,7 +27,8 @@ class ConfigReader(object):
     command line values override config file values which
     override built-in defaults (now set in config structure)
     '''
-    SETTINGS = ['dbauth', 'dbconfig', 'domain', 'tables', 'wikifile', 'wikilist', 'php']
+    SETTINGS = ['dbauth', 'dbconfig', 'domain', 'tables', 'multiversion',
+                'mwrepo', 'wikifile', 'wikilist', 'php']
 
     def __init__(self, configfile):
         defaults = self.get_config_defaults()
@@ -49,6 +50,8 @@ class ConfigReader(object):
         return {
             'dbauth': '',
             'dbconfig': '',
+            'multiversion': '',
+            'mwrepo': '',
             'tables': '',
             'wikifile': 'all.dblist',
             'wikilist': '',
@@ -103,7 +106,8 @@ class DbInfo(object):
         command = [php, 'display_wgdbcreds.php', dbcredsfile]
         if self.dryrun:
             print("would run command:", command)
-            return 'wikiadmin', 'fakepwd'
+            self.dbuser = 'wikiadmin'
+            self.dbpasswd = 'fakepwd'
         self.log.info("running command: %s", ' '.join(command))
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
@@ -429,7 +433,7 @@ class TableDiffs(object):
             self.display_table_diffs(master_table_structure[table],
                                      repl_table_structure[table], table, wiki)
 
-    def display_diffs_master_per_section(self, results):
+    def display_diffs_master_per_sect(self, results):
         '''
         for each master on a section, get the wiki table
         structure on the master, compare the table structure
@@ -456,7 +460,7 @@ class TableDiffs(object):
                     self.dbhost = dbhost
                     self.display_wikidb_diff(results, wiki, master, None)
 
-    def display_diffs_master_all_sections(self, results, main_master, main_wiki):
+    def display_diffs_master_all_sects(self, results, main_master, main_wiki):
         '''
         display table structure diffs taken against one wiki on a specified
         master
@@ -506,9 +510,9 @@ class TableDiffs(object):
         which to diff everything else
         '''
         if main_master:
-            self.display_diffs_master_all_sections(results, main_master, main_wiki)
+            self.display_diffs_master_all_sects(results, main_master, main_wiki)
         else:
-            self.display_diffs_master_per_section(results)
+            self.display_diffs_master_per_sect(results)
 
 
 class TableInfo(object):
@@ -569,7 +573,6 @@ class TableInfo(object):
             results = dbcursor.fetchall()
         except MySQLdb.Error as ex:
             print("Failed to retrieve mysql version, %s %s", ex[0], ex[1])
-            return
 
         # format:     (('version', '10.2.17-MariaDB-log'),)
         print("dbhost:", dbhost, "version:", results[0][1])
@@ -742,7 +745,8 @@ Options:
                        If this arg is set then master must also be set
                        Default: none
     --settings  (-s)   File with global settings which may include:
-                       dbauth, dbconfig, wikifile, wikilist, php, domain
+                       dbauth, dbconfig, multiversion, mwrepo, wikifile, wikilist, php,
+                       domain
                        Default: none
     --tables    (-t)   List of table names, comma-separated
                        Default: none
@@ -806,18 +810,23 @@ Flags:
             return False
         return True
 
+    def check_mandatory_args(self, args, argnames_to_check):
+        '''
+        make sure all mandatory args are present and have a value
+        '''
+        for argname in argnames_to_check:
+            if argname not in args:
+                self.usage("Mandatory argument --{arg} not ".format(arg=argname) +
+                           "specified on command line or in config file")
+            if not args[argname]:
+                self.usage("Mandatory argument --{arg} cannot be empty".format(arg=argname))
+
     def check_opts(self, args):
         '''
         check for missing opts and whine about them
         '''
-        if not args['dbauth']:
-            self.usage("Mandatory argument --dbauth not "
-                       "specified on command line or in config file")
-        if not args['tables']:
-            self.usage("Mandatory argument --tables not "
-                       "specified on command line or in config file")
-        if args['wikilist'] is None:
-            self.usage("No list of wikis provided to process")
+        self.check_mandatory_args(args, ['dbauth', 'tables', 'settings', 'wikilist'])
+
         count = 0
         if args['main_wiki'] is not None:
             count += 1
@@ -825,8 +834,6 @@ Flags:
             count += 1
         if count == 1:
             self.usage("--master and --main_wiki must be provided together")
-        if args['wikilist'] is None:
-            self.usage("No list of wikis provided to process")
 
     def get_opts(self):
         '''
