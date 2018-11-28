@@ -2,6 +2,14 @@
 """
 Retrieve table structure information from MediaWiki
 database servers for various wikis and compare them
+
+We don't use the info schema tables because we want
+to be able to use a regular db user which may not
+have access to them.
+
+We sleep a tiny bit between requests because some
+requests may be made on masters, and while they will
+be fast, we don't want to impact other traffic.
 """
 
 
@@ -27,7 +35,7 @@ class ConfigReader(object):
     command line values override config file values which
     override built-in defaults (now set in config structure)
     '''
-    SETTINGS = ['dbauth', 'dbconfig', 'domain', 'tables', 'multiversion',
+    SETTINGS = ['domain', 'tables', 'multiversion',
                 'mwrepo', 'wikifile', 'wikilist', 'php']
 
     def __init__(self, configfile):
@@ -48,8 +56,6 @@ class ConfigReader(object):
         get and return default config settings for this crapola
         '''
         return {
-            'dbauth': '',
-            'dbconfig': '',
             'multiversion': '',
             'mwrepo': '',
             'tables': '',
@@ -81,38 +87,41 @@ class DbInfo(object):
     database user credentials, etc
     are managed here
     '''
-    def __init__(self, dbhosts, domain, dryrun, verbose):
-        self.dbhosts = dbhosts
-        self.domain = domain
-        self.dryrun = dryrun
-        self.dbuser = None
-        self.dbpasswd = None
-        self.wikis_to_sections = None
-        self.dbhosts_by_section = None
-        if verbose:
+    def __init__(self, args):
+        if args['verbose']:
             log_type = 'verbose'
         else:
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.args = args
+        self.args['dbhosts'], self.wikis_to_sections, self.dbhosts_by_section = self.setup_dbhosts()
+        self.dbcreds = self.get_dbcreds()
 
-    def get_dbcreds(self, php, dbcredsfile):
+    def get_dbcreds(self):
         '''
         looking for values for wgDBuser, wgDBpassword (no need for us to
-        have a privileged user for this work)
-        we'll run a php script that sources the specified file and writes
-        out the value for those variables in json so we can load them
-        up and return them
+        have a privileged user for this work) by running a mw maintenance script
         '''
-        command = [php, 'display_wgdbcreds.php', dbcredsfile]
-        if self.dryrun:
+        wikidb = self.args['wikilist'][0]
+        pull_vars = ["wgDBuser", "wgDBpassword"]
+        phpscript = 'getConfiguration.php'
+        if self.args['multiversion']:
+            mwscript = os.path.join(self.args['multiversion'], 'MWScript.php')
+            command = [self.args['php'], mwscript, phpscript]
+        else:
+            command = [self.args['php'], "{repo}/maintenance/{script}".format(
+                repo=self.args['mwrepo'], script=phpscript)]
+
+        command.extend(["--wiki={dbname}".format(dbname=wikidb),
+                        '--format=json', '--regex={vars}'.format(vars="|".join(pull_vars))])
+        if self.args['dryrun']:
             print("would run command:", command)
-            self.dbuser = 'wikiadmin'
-            self.dbpasswd = 'fakepwd'
-        self.log.info("running command: %s", ' '.join(command))
+            return {'wgDBuser': 'wikiuser', 'wgDBpassword': 'fakepwd'}
+        self.log.info("running command: %s", command)
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error)
+            self.log("Errors encountered: %s", error)
             sys.exit(1)
         self.log.info("got db creds: %s", output)
         creds = json.loads(output)
@@ -120,20 +129,24 @@ class DbInfo(object):
             raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
         if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
             raise ValueError("Missing value for wgDBpassword, bad dbcreds file?")
-        self.dbuser = creds['wgDBuser']
-        self.dbpasswd = creds['wgDBpassword']
+        return creds
 
-    def setup_dbhosts(self, php, dbconfigfile):
+    def setup_dbhosts(self):
         '''
         try to get and save dbhosts from wgLBFactoryConf stuff
         if we don't have an explicit list passed in
         '''
-        if self.dbhosts is None:
-            self.dbhosts, self.wikis_to_sections, self.dbhosts_by_section = (
-                self.get_dbhosts_from_file(php, dbconfigfile))
-        if self.dbhosts is None:
+        wikidb = self.args['wikilist'][0]
+        dbhosts = self.args['dbhosts']
+        wikis_to_sections = {}
+        dbhosts_by_section = {}
+        if not dbhosts:
+            dbhosts, wikis_to_sections, dbhosts_by_section = (
+                self.get_dbhosts(self.args['php'], wikidb,
+                                 self.args['multiversion'], self.args['mwrepo']))
+        if not dbhosts:
             raise ValueError("No list of db hosts provided to process")
-        self.dbhosts = list(set(self.dbhosts))
+        return list(set(dbhosts)), wikis_to_sections, dbhosts_by_section
 
     def is_master(self, dbhost):
         '''
@@ -158,43 +171,48 @@ class DbInfo(object):
         '''
         return all dbs that are (probably) masters based on config file info
         '''
-        return [dbhost for dbhost in self.dbhosts if self.is_master(dbhost)]
+        return [dbhost for dbhost in self.args['dbhosts'] if self.is_master(dbhost)]
 
-    def get_dbhosts_from_file(self, php, dbconfigfile):
+    def get_dbhosts(self, php, wikidb, multiversion, mwrepo):
         '''
         get list of dbs and section-related info from wgLBFactoryConf stuff
-        in a file
+        by running a mw maintenance script
         '''
-        if not dbconfigfile:
-            raise ValueError("No db config filename provided")
-        if not os.path.exists(dbconfigfile):
-            raise ValueError("No such file {filename}".format(filename=dbconfigfile))
-        wglbfactoryconf = self.get_wglbfactoryconf(php, dbconfigfile)
-        if 'sectionLoads' not in wglbfactoryconf:
-            raise ValueError("missing sectionLoads from wgLBFactoryConf, bad config?")
-        if 'sectionsByDB' not in wglbfactoryconf:
-            raise ValueError("missing sectionsByDB from wgLBFactoryConf, bad config?")
-        dbs = []
-        for section in wglbfactoryconf['sectionLoads']:
-            if section.startswith('s') or section == 'DEFAULT':
-                # only process these, anything else can be skipped
-                dbs.extend(list(wglbfactoryconf['sectionLoads'][section]))
-        return dbs, wglbfactoryconf['sectionsByDB'], wglbfactoryconf['sectionLoads']
+        pull_var = 'wgLBFactoryConf'
+        phpscript = 'getConfiguration.php'
+        if multiversion:
+            command = [php, os.path.join(multiversion, 'MWScript.php'), phpscript]
+        else:
+            command = [php, "{repo}/maintenance/{script}".format(repo=mwrepo, script=phpscript)]
 
-    def get_wglbfactoryconf(self, php, dbconfigfile):
-        '''
-        run a php script to source the dbconfig file and write the
-        contents as json, which we can read and convert to a python
-        dict. yuck.
-        '''
-        command = [php, 'display_wgLBFactoryConf.php', dbconfigfile]
-        self.log.info("running command: %s", ' '.join(command))
+        command.extend(["--wiki={dbname}".format(dbname=wikidb),
+                        '--format=json', '--regex={var}'.format(var=pull_var)])
+        if self.args['dryrun']:
+            print("would run command:", command)
+            return [], {}, {}
+        self.log.info("running command: %s", command)
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error)
+            self.log.error("Errors encountered: %s", error)
             sys.exit(1)
-        return json.loads(output, object_pairs_hook=OrderedDict)
+        self.log.info("got db host info: %s", output)
+        results = json.loads(output, object_pairs_hook=OrderedDict)
+        lbfactoryconf = results['wgLBFactoryConf']
+        if 'wgLBFactoryConf' not in results:
+            raise ValueError("missing wgLBFactoryConf")
+        lbfactoryconf = results['wgLBFactoryConf']
+        if 'sectionLoads' not in lbfactoryconf:
+            raise ValueError("missing sectionLoads from wgLBFactoryConf")
+        if 'sectionsByDB' not in lbfactoryconf:
+            raise ValueError("missing sectionsByDB from wgLBFactoryConf")
+        dbs = []
+        for section in lbfactoryconf['sectionLoads']:
+            if section.startswith('s') or section == 'DEFAULT':
+                # only process these, anything else can be skipped
+                dbs.extend(list(lbfactoryconf['sectionLoads'][section]))
+        return(dbs, lbfactoryconf['sectionsByDB'],
+               lbfactoryconf['sectionLoads'])
 
     def get_dbhosts_for_wiki(self, wiki):
         '''
@@ -205,7 +223,7 @@ class DbInfo(object):
         '''
         if not self.wikis_to_sections or not self.dbhosts_by_section:
             # assume all wikis are handled by all dbhosts
-            return self.dbhosts
+            return self.args['dbhosts']
         if wiki not in self.wikis_to_sections:
             section = 'DEFAULT'
         else:
@@ -228,7 +246,7 @@ class DbInfo(object):
 
     def get_wikis_for_dbhost(self, dbhost, wikilist):
         '''
-        get wiki dbs served by a given db host, usign db config info
+        get wiki dbs served by a given db host, using db config info
         previously read from a file, or if no such information is available
         for the given host, assume all wikis are hosted by it
         '''
@@ -253,12 +271,12 @@ class DbInfo(object):
         else:
             host = dbhost
             port = 3306
-        if self.domain:
-            host = host + '.' + self.domain
+        if self.args['domain']:
+            host = host + '.' + self.args['domain']
         try:
             dbconn = MySQLdb.connect(
                 host=host, port=port,
-                user=self.dbuser, passwd=self.dbpasswd)
+                user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
             return dbconn.cursor()
         except MySQLdb.Error as ex:
             self.log.warning("failed to connect to or get cursor from %s:%s, %s %s",
@@ -441,6 +459,9 @@ class TableDiffs(object):
         '''
         masters = self.dbinfo.get_masters()
         for master in masters:
+            wikis_todo = self.dbinfo.get_wikis_for_dbhost(master, self.dbinfo.args['wikilist'])
+            if not wikis_todo:
+                continue
             master_results = results[master]
             for wiki in master_results:
                 print('master:', master)
@@ -565,7 +586,7 @@ class TableInfo(object):
         querystr = "SHOW VARIABLES LIKE 'version';"
         if self.dryrun:
             print("on", dbhost, "would run", querystr)
-            return []
+            return
         self.log.info("on %s running %s", dbhost, querystr)
 
         try:
@@ -669,7 +690,7 @@ class TableInfo(object):
         compared to the master
         '''
         results = {}
-        for dbhost in self.dbinfo.dbhosts:
+        for dbhost in self.dbinfo.args['dbhosts']:
             wikis_todo = self.dbinfo.get_wikis_for_dbhost(dbhost, wikilist)
             if not wikis_todo:
                 continue
@@ -710,9 +731,9 @@ class OptSetup(object):
             sys.stderr.write(message)
             sys.stderr.write('\n')
         usage_message = """
-Usage: check_table_structures.py  --dbauth <path> --tables name[,name...]
+Usage: check_table_structures.py  --tables name[,name...]
     [--wikifile <path>|--wikilist name[,name...]]
-    [--dbconfig <path>|--dbhosts host[,host...]]
+    [--dbhosts host[,host...]]
     [--master <host>] [--main_wiki <name>]
     [--php <path>]
     [--dryrun] [--verbose] [--help]
@@ -724,10 +745,6 @@ replicas agains the master in each case.
 It also writes out the version of mysql/mariadb for each db server.
 
 Options:
-    --dbauth    (-a)   File with db user name and password
-                       default: none
-    --dbconfig  (-c)   Config file with db hostnames per section such as db-eqiad.php
-                       default: none
     --dbhosts   (-h)   List of db hostnames, comma-separated
                        If such a list is provided, it will be presumed that all wikidbs
                        specified can be found on all the db hostnames given
@@ -745,8 +762,7 @@ Options:
                        If this arg is set then master must also be set
                        Default: none
     --settings  (-s)   File with global settings which may include:
-                       dbauth, dbconfig, multiversion, mwrepo, wikifile, wikilist, php,
-                       domain
+                       multiversion, mwrepo, wikifile, wikilist, php, domain
                        Default: none
     --tables    (-t)   List of table names, comma-separated
                        Default: none
@@ -771,12 +787,8 @@ Flags:
         set option value in args dict if the option
         is one of the below
         '''
-        if opt in ['-a', '--dbauth']:
-            args['dbauth'] = val
-        elif opt in ['-c', '--dbconfig']:
-            args['dbconfig'] = val
-        elif opt in ['-h', '--dbhosts']:
-            args['dbhosts'] = val
+        if opt in ['-h', '--dbhosts']:
+            args['dbhosts'] = val.split(',')
         elif opt in ['-f', '--wikifile']:
             args['wikifile'] = val
         elif opt in ['-l', '--wikilist']:
@@ -825,7 +837,7 @@ Flags:
         '''
         check for missing opts and whine about them
         '''
-        self.check_mandatory_args(args, ['dbauth', 'tables', 'settings', 'wikilist'])
+        self.check_mandatory_args(args, ['tables', 'settings', 'wikilist'])
 
         count = 0
         if args['main_wiki'] is not None:
@@ -850,8 +862,8 @@ Flags:
 
         try:
             (options, remainder) = getopt.gnu_getopt(
-                sys.argv[1:], 'a:c:h:f:l:m:p:s:t:vh',
-                ['dbauth=', 'dbconfig=', 'dbhosts=', 'master=', 'main_wiki=',
+                sys.argv[1:], 'h:f:l:m:p:s:t:vh',
+                ['dbhosts=', 'master=', 'main_wiki=',
                  'php=', 'settings=', 'tables=',
                  'wikifile=', 'wikilist=',
                  'dryrun', 'verbose', 'help'])
@@ -934,9 +946,7 @@ def do_main():
     setup = OptSetup()
     args = setup.args
 
-    dbinfo = DbInfo(args['dbhosts'], args['domain'], args['dryrun'], args['verbose'])
-    dbinfo.get_dbcreds(args['php'], args['dbauth'])
-    dbinfo.setup_dbhosts(args['php'], args['dbconfig'])
+    dbinfo = DbInfo(args)
     tableinfo = TableInfo(dbinfo, args['tables'], args['dryrun'], args['verbose'])
     tableinfo.show_tables_for_wikis(args['wikilist'], args['main_master'], args['main_wiki'])
 
