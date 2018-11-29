@@ -216,7 +216,7 @@ class QueryRunner():
         command = "echo '{query}' | {mysql}".format(
             query=query, mysql=remote_mysql_command)
         if not display_command_info(command, self.dryrun, self.verbose):
-            return '0'
+            return b'0'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
@@ -264,7 +264,7 @@ class RevCounter():
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb)
         command = build_command(remote_command, ssh_host=self.config['dumpshost'])
         if not display_command_info(command, self.dryrun, self.verbose):
-            return '99999999'
+            return b'99999999'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
@@ -293,7 +293,7 @@ class RevCounter():
             dumpsdir=self.config['dumpsdir'], wiki=self.wikidb, rundate=rundate.decode('utf-8'))
         command = build_command(remote_command, ssh_host=self.config['dumpshost'])
         if not display_command_info(command, self.dryrun, self.verbose):
-            return 0, 0
+            return b'0', b'0'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()

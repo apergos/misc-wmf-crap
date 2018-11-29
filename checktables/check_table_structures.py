@@ -144,7 +144,7 @@ class DbInfo():
             dbhosts, wikis_to_sections, dbhosts_by_section = (
                 self.get_dbhosts(self.args['php'], wikidb,
                                  self.args['multiversion'], self.args['mwrepo']))
-        if not dbhosts:
+        if not dbhosts and not self.args['dryrun']:
             raise ValueError("No list of db hosts provided to process")
         return list(set(dbhosts)), wikis_to_sections, dbhosts_by_section
 
@@ -491,7 +491,11 @@ class TableDiffs():
         better exmple: decide enwiki on db2010 has the table structure you
         want on all wikis everywhere and compare them all against it
         '''
-        master_results = results[main_master]
+        if main_master in results:
+            master_results = results[main_master]
+        else:
+            # example: a dry run will produce this
+            master_results = []
         masters = self.dbinfo.get_masters()
         print("all wiki tables will be checked against {db}:{wiki}".format(
             db=main_master, wiki=main_wiki))
