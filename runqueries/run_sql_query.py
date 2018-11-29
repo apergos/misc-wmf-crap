@@ -14,11 +14,11 @@ import json
 import re
 import sys
 from subprocess import Popen, PIPE
-import configparser
 import warnings
 import MySQLdb
 import yaml
 from prettytable import PrettyTable
+import queries.config as qconfig
 
 
 class QueryInfo():
@@ -190,54 +190,12 @@ class QueryInfo():
                 self.run_on_server(host, self.settings['servers'][section]['wikis'])
 
 
-SETTINGS = ['multiversion', 'mwrepo', 'php']
-
-
-def config_setup(configfile):
-    '''
-    return a dict of config settings and their (possibly empty but not None) values
-    '''
-    defaults = get_config_defaults()
-    conf = configparser.ConfigParser(defaults)
-    conf.read(configfile)
-    if not conf.has_section('settings'):
-        sys.stderr.write("The mandatory configuration section "
-                         "'settings' was not defined.\n")
-        raise configparser.NoSectionError('settings')
-    settings = parse_config(conf)
-    return settings
-
-
-def get_config_defaults():
-    '''
-    get and return default config settings for this crapola
-    '''
-    return {
-        'multiversion': '',
-        'mwrepo': '/srv/mediawiki',
-        'php': '/usr/bin/php'
-    }
-
-
-def parse_config(conf):
-    '''
-    grab values from configuration and assign them to appropriate variables
-    '''
-    args = {}
-    # could be true if we re only using the defaults
-    if not conf.has_section('settings'):
-        conf.add_section('settings')
-    for setting in SETTINGS:
-        args[setting] = conf.get('settings', setting)
-    return args
-
-
 def get_dbcreds(configfile, wikidb, dryrun, verbose):
     '''
     initialize db credentials by running a MW maintenance script to get the
     value of the user and password
     '''
-    config = config_setup(configfile)
+    config = qconfig.config_setup(configfile)
     pull_vars = ["wgDBuser", "wgDBpassword"]
     phpscript = 'getConfiguration.php'
     if config['multiversion']:

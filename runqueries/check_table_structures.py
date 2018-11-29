@@ -23,62 +23,8 @@ import logging.config
 from subprocess import Popen, PIPE
 from collections import OrderedDict
 import time
-import configparser
 import MySQLdb
-
-
-class ConfigReader():
-    '''
-    read stuff that would otherwise be command line args
-    from a config file
-
-    command line values override config file values which
-    override built-in defaults (now set in config structure)
-    '''
-    SETTINGS = ['domain', 'tables', 'multiversion',
-                'mwrepo', 'wikifile', 'wikilist', 'php']
-
-    def __init__(self, configfile):
-        defaults = self.get_config_defaults()
-        self.conf = configparser.ConfigParser(defaults)
-        if configfile is not None:
-            self.conf.read(configfile)
-            if not self.conf.has_section('settings'):
-                # you don't have to have a config file, but if you do,
-                # it needs to have the right stuff in it at least
-                sys.stderr.write("The mandatory configuration section "
-                                 "'settings' was not defined.\n")
-                raise configparser.NoSectionError('settings')
-
-    @staticmethod
-    def get_config_defaults():
-        '''
-        get and return default config settings for this crapola
-        '''
-        return {
-            'multiversion': '',
-            'mwrepo': '',
-            'tables': '',
-            'wikifile': 'all.dblist',
-            'wikilist': '',
-            'php': '/usr/bin/php',
-            'domain': '',
-        }
-
-    def parse_config(self):
-        '''
-        grab values from configuration and assign them to appropriate variables
-        '''
-        args = {}
-        # could be true if we re only using the defaults
-        if not self.conf.has_section('settings'):
-            self.conf.add_section('settings')
-        for setting in self.SETTINGS:
-            args[setting] = self.conf.get('settings', setting)
-        for setting in ['wikilist', 'tables']:
-            if args[setting]:
-                args[setting] = args[setting].split(',')
-        return args
+import queries.config as qconfig
 
 
 class DbInfo():
@@ -883,12 +829,11 @@ Flags:
             self.usage("Unknown option specified: <{opt}>".format(opt=remainder))
 
         globalconfigfile = args.get('settings')
-        conf = ConfigReader(globalconfigfile)
-        conf_settings = conf.parse_config()
+        conf = qconfig.config_setup(globalconfigfile)
         # merge conf_settings into args, where conf_settings values are used for fallback
-        for setting in ConfigReader.SETTINGS:
+        for setting in qconfig.SETTINGS:
             if setting not in args:
-                args[setting] = conf_settings[setting]
+                args[setting] = conf[setting]
 
         if args['wikilist'] is None:
             args['wikilist'] = self.get_wikis_from_file(args['wikifile'])

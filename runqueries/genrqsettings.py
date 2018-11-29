@@ -30,67 +30,17 @@ Yes, it's gross. Too bad.
 
 import sys
 import getopt
-import configparser
 import json
 import os
 from subprocess import Popen, PIPE
 from collections import OrderedDict
+import queries.config as qconfig
 
 
 # SSH = '/usr/bin/ssh'
 SSH = '/home/ariel/bin/sshes'
 SUDO_USER = 'www-data'
 MWSCRIPT = 'MWScript.php'
-
-
-class ConfigReader():
-    '''
-    read stuff that would otherwise be command line args
-    from a config file
-
-    command line values override config file values which
-    override built-in defaults (now set in config structure)
-    '''
-    SETTINGS = ['php', 'dumpshost', 'dumpsdir',
-                'multiversion', 'mwhost', 'mwrepo']
-
-    def __init__(self, configfile):
-        defaults = self.get_config_defaults()
-        self.conf = configparser.ConfigParser(defaults)
-        if configfile is not None:
-            self.conf.read(configfile)
-            if not self.conf.has_section('settings'):
-                # you don't have to have a config file, but if you do,
-                # it needs to have the right stuff in it at least
-                sys.stderr.write("The mandatory configuration section "
-                                 "'settings' was not defined.\n")
-                raise configparser.NoSectionError('settings')
-
-    @staticmethod
-    def get_config_defaults():
-        '''
-        get and return default config settings for this crapola
-        '''
-        return {
-            'php': '/usr/bin/php',
-            'dumpshost': '',
-            'dumpspath': '/dumps',
-            'multiversion': '',
-            'mwhost': '',
-            'mwrepo': '/srv/mediawiki'
-        }
-
-    def parse_config(self):
-        '''
-        grab values from configuration and assign them to appropriate variables
-        '''
-        args = {}
-        # could be true if we re only using the defaults
-        if not self.conf.has_section('settings'):
-            self.conf.add_section('settings')
-        for setting in self.SETTINGS:
-            args[setting] = self.conf.get('settings', setting)
-        return args
 
 
 class QueryRunner():
@@ -550,8 +500,7 @@ def do_main():
     if wikidb is None:
         usage("Mandatory argument 'wikidb' not specified")
 
-    conf_reader = ConfigReader(configfile)
-    config = conf_reader.parse_config()
+    config = qconfig.config_setup(configfile)
     run(config, wikidb, dryrun, verbose)
 
 
