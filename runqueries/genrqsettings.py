@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
 Given a config file and the name of a wiki database, write out
@@ -29,20 +30,20 @@ Yes, it's gross. Too bad.
 
 import sys
 import getopt
-import ConfigParser
+import configparser
 import json
 import os
 from subprocess import Popen, PIPE
 from collections import OrderedDict
 
 
-#SSH = '/usr/bin/ssh'
+# SSH = '/usr/bin/ssh'
 SSH = '/home/ariel/bin/sshes'
 SUDO_USER = 'www-data'
 MWSCRIPT = 'MWScript.php'
 
 
-class ConfigReader(object):
+class ConfigReader():
     '''
     read stuff that would otherwise be command line args
     from a config file
@@ -55,7 +56,7 @@ class ConfigReader(object):
 
     def __init__(self, configfile):
         defaults = self.get_config_defaults()
-        self.conf = ConfigParser.SafeConfigParser(defaults)
+        self.conf = configparser.ConfigParser(defaults)
         if configfile is not None:
             self.conf.read(configfile)
             if not self.conf.has_section('settings'):
@@ -63,7 +64,7 @@ class ConfigReader(object):
                 # it needs to have the right stuff in it at least
                 sys.stderr.write("The mandatory configuration section "
                                  "'settings' was not defined.\n")
-                raise ConfigParser.NoSectionError('settings')
+                raise configparser.NoSectionError('settings')
 
     @staticmethod
     def get_config_defaults():
@@ -92,7 +93,7 @@ class ConfigReader(object):
         return args
 
 
-class QueryRunner(object):
+class QueryRunner():
     '''
     run various db queries or collect info to run them
     '''
@@ -109,7 +110,7 @@ class QueryRunner(object):
         '''
         api_url_base = self.get_api_url_from_wikidb()
         url = api_url_base + "?action=query&pageids={pageid}&format=json".format(
-            pageid=pageid)
+            pageid=pageid.decode('utf-8'))
         command = ["/usr/bin/curl", "-s", url]
         if not display_command_info(command, self.dryrun, self.verbose):
             return '0', 'MainPage'
@@ -117,15 +118,16 @@ class QueryRunner(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error)
+            print("Errors encountered:", error.decode('utf-8'))
             sys.exit(1)
-        pageinfo = json.loads(output)
+        pageinfo = json.loads(output.decode('utf-8'))
         try:
-            thispage = pageinfo['query']['pages'][pageid]
+            thispage = pageinfo['query']['pages'][pageid.decode('utf-8')]
             namespace = thispage['ns']
             title = thispage['title']
         except Exception:
-            raise IOError("Failed to get pageinfo for page id {pageid}".format(pageid=pageid))
+            raise IOError("Failed to get pageinfo for page id {pageid}".format(
+                pageid=pageid.decode('utf-8')))
         if namespace != 0 and ':' in title:
             # dump the namespace prefix that will have been stuffed onto the title
             title = title.split(':', 1)[1]
@@ -172,11 +174,11 @@ class QueryRunner(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         # ignore stuff like "Warning: rename(/tmp/...) permission denied
-        if error and not error.startswith('Warning'):
-            print("Errors encountered:", error)
+        if error and not error.startswith(b'Warning'):
+            print("Errors encountered:", error.decode('utf-8'))
             sys.exit(1)
         try:
-            settings = json.loads(output)
+            settings = json.loads(output.decode('utf-8'))
         except ValueError:
             settings = None
         if not settings or len(settings) != 2:
@@ -206,7 +208,7 @@ class QueryRunner(object):
                               "--group=vslow", "--", "--silent"])
         query = ("select rev_id from revision where " +
                  "rev_page={pageid} order by rev_id desc limit 1 offset {revcounthalf};".format(
-                     pageid=pageid, revcounthalf=int(revcount)/2 + 1))
+                     pageid=pageid.decode('utf-8'), revcounthalf=int(int(revcount)/2 + 1)))
         remote_mysql_command = build_command(
             mysql_command, ssh_host=self.config['mwhost'], sudo_user=SUDO_USER,
             mwscript=mw_script_location, php=self.config['php'])
@@ -218,17 +220,17 @@ class QueryRunner(object):
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
-        if error and not error.startswith("Warning:"):
-            print("Errors encountered:", error)
+        if error and not error.startswith(b"Warning:"):
+            print("Errors encountered:", error.decode('utf-8'))
             sys.exit(1)
-        revid = output.rstrip('\n')
+        revid = output.rstrip(b'\n')
         if not revid:
             raise IOError(
                 "Failed to get midpoint revid for {wiki}".format(wiki=self.wikidb))
         return revid
 
 
-class RevCounter(object):
+class RevCounter():
     '''
     run a horrid little C binary to read through an xml stubs history file,
     count revs per page, nd write out the ones that have more than 10k
@@ -267,7 +269,7 @@ class RevCounter(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error)
+            print("Errors encountered:", error.decode('utf-8'))
             sys.exit(1)
         # expect something like
         # 20180920  20181001  20181020  20181101 20181120 latest
@@ -288,7 +290,7 @@ class RevCounter(object):
                           "| /usr/local/bin/revsperpage all " + str(self.REVCUTOFF) +
                           "| sort -k 2 -nr | head -1'")
         remote_command = remote_command.format(
-            dumpsdir=self.config['dumpsdir'], wiki=self.wikidb, rundate=rundate)
+            dumpsdir=self.config['dumpsdir'], wiki=self.wikidb, rundate=rundate.decode('utf-8'))
         command = build_command(remote_command, ssh_host=self.config['dumpshost'])
         if not display_command_info(command, self.dryrun, self.verbose):
             return 0, 0
@@ -296,7 +298,7 @@ class RevCounter(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error)
+            print("Errors encountered:", error.decode('utf-8'))
             sys.exit(1)
         # expect pageid revcount as the last line
         lines = output.splitlines()
@@ -333,8 +335,9 @@ def display(namespace, title, bigpage_id, revid, startpage, endpage, section, wi
         endpage: '{end}'
         namespace: '{ns}'
         title: {title}"""
-    print(stanza.format(wikidb=wikidb, shard=section, pageid=bigpage_id, revid=revid,
-                        start=startpage, end=endpage, ns=namespace, title=title.encode('utf-8')))
+    print(stanza.format(wikidb=wikidb, shard=section,
+                        pageid=bigpage_id.decode('utf-8'), revid=revid.decode('utf-8'),
+                        start=startpage, end=endpage, ns=namespace, title=title))
 
 
 def usage(message=None):
@@ -347,7 +350,7 @@ def usage(message=None):
         sys.stderr.write(message)
         sys.stderr.write('\n')
     usage_message = """
-Usage: genrqsettings.py --configfile <path> --wikidb <name>
+Usage: python3 genrqsettings.py --configfile <path> --wikidb <name>
     [--dryrun] [--verbose] [--help]
 
 This script reads a configfile path and the name of a wiki database,
@@ -399,13 +402,13 @@ def get_dbconfig(config, multiversion, wikidb, dryrun, verbose):
     proc = Popen(command, stdout=PIPE, stderr=PIPE)
     output, error = proc.communicate()
     # ignore stuff like "Warning: rename(/tmp/...) permission denied
-    if error and not error.startswith('Warning'):
-        print("Errors encountered:", error)
+    if error and not error.startswith(b'Warning'):
+        print("Errors encountered:", error.decode('utf-8'))
         sys.exit(1)
     if not output:
         raise IOError("Failed to retrieve db config")
     try:
-        settings = json.loads(output, object_pairs_hook=OrderedDict)
+        settings = json.loads(output.decode('utf-8'), object_pairs_hook=OrderedDict)
     except ValueError:
         settings = None
     if not settings:
@@ -470,7 +473,8 @@ def get_maint_script_path(multiversion, config, maint_script_basename):
         maint_script_cmd = [maint_script_basename]
     else:
         mw_script_location = None
-        maint_script_cmd = ["%s/maintenance/%s" % (config['mwrepo'], maint_script_basename)]
+        maint_script_cmd = ["{repo}/maintenance/{script}".format(
+            repo=config['mwrepo'], script=maint_script_basename)]
     return mw_script_location, maint_script_cmd
 
 
@@ -483,11 +487,9 @@ def build_command(command_base, ssh_host=None, sudo_user=None, mwscript=None, ph
     '''
     command = command_base[:]
     if mwscript:
-        mwscript_cmd = [mwscript]
-        command = prepend_command(command, mwscript_cmd)
+        command = prepend_command(command, [mwscript])
     if php:
-        phpcmd = ['/usr/bin/php7.0']
-        command = prepend_command(command, phpcmd)
+        command = prepend_command(command, [php])
     if sudo_user:
         sudocmd = ['sudo', '-u', sudo_user]
         command = prepend_command(command, sudocmd)
@@ -507,10 +509,10 @@ def display_command_info(command, dryrun, verbose):
     else:
         printable_cmd = command
     if dryrun:
-        print "would run command:", printable_cmd
+        print("would run command:", printable_cmd)
         return False
-    elif verbose:
-        print "running command:", printable_cmd
+    if verbose:
+        print("running command:", printable_cmd)
     return True
 
 
@@ -543,7 +545,7 @@ def do_main():
             verbose = True
 
     if remainder:
-        usage("Unknown option(s) specified: <%s>" % remainder[0])
+        usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
     if wikidb is None:
         usage("Mandatory argument 'wikidb' not specified")

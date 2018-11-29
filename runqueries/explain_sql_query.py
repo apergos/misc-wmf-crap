@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
 Read mysql queries from a file, substitute in the value of
@@ -21,7 +22,6 @@ and db cursor.
 # * make log file name configurable?
 
 
-from __future__ import print_function
 import os
 import getopt
 import json
@@ -29,7 +29,7 @@ import logging
 import logging.config
 import re
 import sys
-import ConfigParser
+import configparser
 import threading
 from subprocess import Popen, PIPE
 import warnings
@@ -54,18 +54,19 @@ def async_query(cursor, wiki, query, log):
             row = cursor.fetchone()
         cursor.close()
     except MySQLdb.Error as ex:
-        if ex[0] == 2013 or ex[0] == 1317:
+        if ex.args[0] == 2013 or ex[0] == 1317:
             # this means it has been shot (probably), in any case we don't care
             # 1317: Query execution was interrupted
             # 2013: Lost connection to MySQL server during query
             log.info("Async Query: lost connection or query execution interrupted on wiki "
-                     "%s (%s:%s)", wiki, ex[0], ex[1])
+                     "%s (%s:%s)", wiki, ex.args[0], ex.args[1])
         else:
-            raise MySQLdb.Error(("Async Query: exception running query on wiki %s (%s:%s)" % (
-                wiki, ex[0], ex[1])))
+            raise MySQLdb.Error(("Async Query: exception running query on wiki "
+                                 "{wiki} ({errno}:{message})".format(
+                                     wiki=wiki, errno=ex.args[0], message=ex.args[1])))
 
 
-class QueryInfo(object):
+class QueryInfo():
     '''
     munge and run queries on db servers for specific wikis
     '''
@@ -123,8 +124,8 @@ class QueryInfo(object):
         '''
         find and return the first wiki db name in the settings
         '''
-        shards = self.settings['servers'].keys()
-        return self.settings['servers'][shards[0]]['wikis'].keys()[0]
+        shards = list(self.settings['servers'].keys())
+        return list(self.settings['servers'][shards[0]]['wikis'].keys())[0]
 
     def prettyprint_query(self, querystring):
         '''
@@ -157,8 +158,9 @@ class QueryInfo(object):
                 user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
             return dbconn.cursor(), dbconn.thread_id()
         except MySQLdb.Error as ex:
-            raise MySQLdb.Error("failed to connect to or get cursor from %s:%s, %s %s" % (
-                host, port, ex[0], ex[1]))
+            raise MySQLdb.Error("failed to connect to or get cursor from "
+                                "{host}:{port}, {errno}:{message}".format(
+                                    host=host, port=port, errno=ex.args[0], message=ex.args[1]))
 
     def fillin_query_template(self, wiki_settings):
         '''
@@ -191,7 +193,8 @@ class QueryInfo(object):
         except MySQLdb.Error as ex:
             if result is not None:
                 self.log.error("returned from fetchall: %s", result)
-            raise MySQLdb.Error("exception for use %s (%s:%s)" % (wiki, ex[0], ex[1]))
+            raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
+                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
 
     def start_query(self, cursor, wiki, query):
         '''
@@ -225,7 +228,7 @@ class QueryInfo(object):
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
             self.log.warning("exception looking for thread id on host %s (%s:%s)",
-                             host, ex[0], ex[1])
+                             host, ex.args[0], ex.args[1])
             return None
         self.log.info("show processlist:")
         self.log.info(self.prettyprint_rows(result, cursor.description))
@@ -267,13 +270,14 @@ class QueryInfo(object):
             description = cursor.description
             explain_result = cursor.fetchall()
         except MySQLdb.Error as ex:
-            if ex[0] == 1933:
+            if ex.args[0] == 1933:
                 # 1933:Target is not running an EXPLAINable command, ie query is already complete
                 explain_result = None
                 description = None
             else:
-                raise MySQLdb.Error(("exception explaining query on wiki %s (%s:%s)" % (
-                    wiki, ex[0], ex[1])))
+                raise MySQLdb.Error(("exception explaining query on wiki "
+                                     "{wiki} ({errno}:{message})".format(
+                                         wiki=wiki, errno=ex.args[0], message=ex.args[1])))
         return explain_result, description
 
     def kill(self, cursor, wiki, thread_id):
@@ -293,8 +297,9 @@ class QueryInfo(object):
         except MySQLdb.Error as ex:
             # 1094:Unknown thread id: <thread_id>
             if ex[0] != 1094:
-                raise MySQLdb.Error(("exception killing query on wiki %s (%s:%s)" % (
-                    wiki, ex[0], ex[1])))
+                raise MySQLdb.Error(("exception killing query on wiki "
+                                     "{wiki} ({errno}:{message})".format(
+                                         wiki=wiki, errno=ex.args[0], message=ex.args[1])))
 
     def print_and_log(self, *args):
         '''
@@ -318,7 +323,7 @@ class QueryInfo(object):
         explain_result, description = self.explain(cursor, wiki, thread_id)
         self.kill(cursor, wiki, thread_id)
         self.print_and_log("*** QUERY:")
-        self.print_and_log(self.prettyprint_query(query).encode('utf-8'))
+        self.print_and_log(self.prettyprint_query(query))
         self.print_and_log("*** SHOW EXPLAIN RESULTS:")
         self.print_and_log(self.prettyprint_rows(explain_result, description))
 
@@ -385,12 +390,12 @@ def config_setup(configfile):
     return a dict of config settings and their (possibly empty but not None) values
     '''
     defaults = get_config_defaults()
-    conf = ConfigParser.SafeConfigParser(defaults)
+    conf = configparser.ConfigParser(defaults)
     conf.read(configfile)
     if not conf.has_section('settings'):
         sys.stderr.write("The mandatory configuration section "
                          "'settings' was not defined.\n")
-        raise ConfigParser.NoSectionError('settings')
+        raise configparser.NoSectionError('settings')
     settings = parse_config(conf)
     return settings
 
@@ -443,10 +448,10 @@ def get_dbcreds(configfile, log, wikidb, dryrun):
     proc = Popen(command, stdout=PIPE, stderr=PIPE)
     output, error = proc.communicate()
     if error:
-        log.error("Errors encountered: %s", error)
+        log.error("Errors encountered: %s", error.decode('utf-8'))
         sys.exit(1)
-    log.info("got db creds: %s", output)
-    creds = json.loads(output)
+    log.info("got db creds: %s", output.decode('utf-8'))
+    creds = json.loads(output.decode('utf-8'))
     if 'wgDBuser' not in creds or not creds['wgDBuser']:
         raise ValueError("Missing value for wgDBuser")
     if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
@@ -464,7 +469,7 @@ def usage(message=None):
         sys.stderr.write(message)
         sys.stderr.write('\n')
     usage_message = """
-Usage: explain_sql_query.py --yamlfile <path> --queryfile <path> --configfile <path>
+Usage: python3 explain_sql_query.py --yamlfile <path> --queryfile <path> --configfile <path>
     [--dryrun] [--verbose] [--help]
 
 This script reads server, wiki and variable names from the specified
@@ -599,7 +604,7 @@ def do_main():
             verbose = True
 
     if remainder:
-        usage("Unknown option(s) specified: <%s>" % remainder[0])
+        usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
     check_mandatory_args(yamlfile, queryfile, configfile)
 

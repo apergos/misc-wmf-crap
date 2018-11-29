@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
 read mysql queries from a file, substitute in the value of
@@ -13,14 +14,14 @@ import json
 import re
 import sys
 from subprocess import Popen, PIPE
-import ConfigParser
+import configparser
 import warnings
 import MySQLdb
 import yaml
 from prettytable import PrettyTable
 
 
-class QueryInfo(object):
+class QueryInfo():
     '''
     munge and run queries on db servers for specific wikis
     '''
@@ -72,8 +73,8 @@ class QueryInfo(object):
         '''
         find and return the first wiki db name in the settings
         '''
-        shards = self.settings['servers'].keys()
-        return self.settings['servers'][shards[0]]['wikis'].keys()[0]
+        shards = list(self.settings['servers'].keys())
+        return list(self.settings['servers'][shards[0]]['wikis'].keys())[0]
 
     def prettyprint(self, querystring):
         '''
@@ -102,8 +103,9 @@ class QueryInfo(object):
                 user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
             return dbconn.cursor()
         except MySQLdb.Error as ex:
-            raise MySQLdb.Error("failed to connect to or get cursor from %s:%s, %s %s" % (
-                host, port, ex[0], ex[1]))
+            raise MySQLdb.Error("failed to connect to or get cursor from "
+                                "{host}:{port}, {errno}:{message}".format(
+                                    host=host, port=port, errno=ex.args[0], message=ex.args[1]))
 
     def fillin_query_template(self, wiki_settings):
         '''
@@ -126,46 +128,48 @@ class QueryInfo(object):
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
         '''
-        print "wiki:", wiki
+        print("wiki:", wiki)
         queries = self.fillin_query_template(wiki_settings)
         usequery = 'USE ' + wiki + ';'
         if self.dryrun:
-            print "would run", self.prettyprint(usequery)
+            print("would run", self.prettyprint(usequery))
             for query in queries:
-                print "would run", self.prettyprint(query).encode('utf-8')
+                print("would run", self.prettyprint(query))
             return
         if self.verbose:
-            print "running", usequery
+            print("running", usequery)
         try:
             cursor.execute(usequery)
             result = cursor.fetchall()
         except MySQLdb.Error as ex:
-            raise MySQLdb.Error("exception for use %s (%s:%s)" % (wiki, ex[0], ex[1]))
+            raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
+                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
         for query in queries:
             if self.verbose:
-                print "running:"
-                print self.prettyprint(query).encode('utf-8')
+                print("running:")
+                print(self.prettyprint(query))
             try:
                 cursor.execute(query.encode('utf-8'))
                 result = cursor.fetchall()
             except MySQLdb.Error as ex:
-                raise MySQLdb.Error(("exception running query on wiki %s (%s:%s)" % (
-                    wiki, ex[0], ex[1])))
-            print self.prettyprint(query).encode('utf-8')
+                raise MySQLdb.Error("exception running query on wiki "
+                                    "{wiki} ({errno}:{message})".format(
+                                        wiki=wiki, errno=ex.args[0], message=ex.args[1]))
+            print(self.prettyprint(query))
             headers = [desc[0] for desc in cursor.description]
             table = PrettyTable(headers)
             for header in headers:
                 table.align[header] = "l"
             for entry in result:
                 table.add_row(list(entry))
-            print table
+            print(table)
 
     def run_on_server(self, host, wikis_info):
         '''
         run queries on all wikis for specified server, after
         filling in the query template
         '''
-        print "host:", host
+        print("host:", host)
         if self.dryrun:
             cursor = None
         else:
@@ -181,7 +185,7 @@ class QueryInfo(object):
         the query template filled in appropriately
         '''
         for shard in self.settings['servers']:
-            print "info for shard", shard
+            print("info for shard", shard)
             for host in self.settings['servers'][shard]['hosts']:
                 self.run_on_server(host, self.settings['servers'][shard]['wikis'])
 
@@ -194,12 +198,12 @@ def config_setup(configfile):
     return a dict of config settings and their (possibly empty but not None) values
     '''
     defaults = get_config_defaults()
-    conf = ConfigParser.SafeConfigParser(defaults)
+    conf = configparser.ConfigParser(defaults)
     conf.read(configfile)
     if not conf.has_section('settings'):
         sys.stderr.write("The mandatory configuration section "
                          "'settings' was not defined.\n")
-        raise ConfigParser.NoSectionError('settings')
+        raise configparser.NoSectionError('settings')
     settings = parse_config(conf)
     return settings
 
@@ -247,18 +251,18 @@ def get_dbcreds(configfile, wikidb, dryrun, verbose):
     command.extend(["--wiki={dbname}".format(dbname=wikidb),
                     '--format=json', '--regex={vars}'.format(vars="|".join(pull_vars))])
     if dryrun:
-        print "would run command:", command
+        print("would run command:", command)
         return {}
-    elif verbose:
-        print "running command:", command
+    if verbose:
+        print("running command:", command)
     proc = Popen(command, stdout=PIPE, stderr=PIPE)
     output, error = proc.communicate()
     if error:
-        print("Errors encountered:", error)
+        print("Errors encountered:", error.decode('utf-8'))
         sys.exit(1)
     if verbose:
-        print "got db creds:", output
-    creds = json.loads(output)
+        print("got db creds:", output.decode('utf-8'))
+    creds = json.loads(output.decode('utf-8'))
     if 'wgDBuser' not in creds or not creds['wgDBuser']:
         raise ValueError("Missing value for wgDBuser")
     if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
@@ -276,7 +280,7 @@ def usage(message=None):
         sys.stderr.write(message)
         sys.stderr.write('\n')
     usage_message = """
-Usage: run_sql_query.py --yamlfile <path> --queryfile <path> --configfile <path>
+Usage: python3 run_sql_query.py --yamlfile <path> --queryfile <path> --configfile <path>
     [--dryrun] [--verbose] [--help]
 
 This script reads server, wiki and variable names from the specified
@@ -352,7 +356,7 @@ def do_main():
             verbose = True
 
     if remainder:
-        usage("Unknown option(s) specified: <%s>" % remainder[0])
+        usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
     if yamlfile is None:
         usage("Mandatory argument 'yamlfile' not specified")

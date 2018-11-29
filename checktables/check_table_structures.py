@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
 Retrieve table structure information from MediaWiki
@@ -13,7 +14,6 @@ be fast, we don't want to impact other traffic.
 """
 
 
-from __future__ import print_function
 import os
 import sys
 import getopt
@@ -23,11 +23,11 @@ import logging.config
 from subprocess import Popen, PIPE
 from collections import OrderedDict
 import time
-import ConfigParser
+import configparser
 import MySQLdb
 
 
-class ConfigReader(object):
+class ConfigReader():
     '''
     read stuff that would otherwise be command line args
     from a config file
@@ -40,7 +40,7 @@ class ConfigReader(object):
 
     def __init__(self, configfile):
         defaults = self.get_config_defaults()
-        self.conf = ConfigParser.SafeConfigParser(defaults)
+        self.conf = configparser.ConfigParser(defaults)
         if configfile is not None:
             self.conf.read(configfile)
             if not self.conf.has_section('settings'):
@@ -48,7 +48,7 @@ class ConfigReader(object):
                 # it needs to have the right stuff in it at least
                 sys.stderr.write("The mandatory configuration section "
                                  "'settings' was not defined.\n")
-                raise ConfigParser.NoSectionError('settings')
+                raise configparser.NoSectionError('settings')
 
     @staticmethod
     def get_config_defaults():
@@ -81,7 +81,7 @@ class ConfigReader(object):
         return args
 
 
-class DbInfo(object):
+class DbInfo():
     '''
     which db servers handle which wikis,
     database user credentials, etc
@@ -121,10 +121,10 @@ class DbInfo(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            self.log("Errors encountered: %s", error)
+            self.log("Errors encountered: %s", error.decode('utf-8'))
             sys.exit(1)
-        self.log.info("got db creds: %s", output)
-        creds = json.loads(output)
+        self.log.info("got db creds: %s", output.decode('utf-8'))
+        creds = json.loads(output.decode('utf-8'))
         if 'wgDBuser' not in creds or not creds['wgDBuser']:
             raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
         if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
@@ -159,9 +159,9 @@ class DbInfo(object):
             return True
         for section in self.dbhosts_by_section:
             # master is in 'slot 0'
-            if dbhost == self.dbhosts_by_section[section].keys()[0]:
+            if dbhost == list(self.dbhosts_by_section[section].keys())[0]:
                 return True
-            elif dbhost in self.dbhosts_by_section[section]:
+            if dbhost in self.dbhosts_by_section[section]:
                 listed = True
         if listed:
             return False
@@ -194,10 +194,10 @@ class DbInfo(object):
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            self.log.error("Errors encountered: %s", error)
+            self.log.error("Errors encountered: %s", error.decode('utf-8'))
             sys.exit(1)
-        self.log.info("got db host info: %s", output)
-        results = json.loads(output, object_pairs_hook=OrderedDict)
+        self.log.info("got db host info: %s", output.decode('utf-8'))
+        results = json.loads(output.decode('utf-8'), object_pairs_hook=OrderedDict)
         lbfactoryconf = results['wgLBFactoryConf']
         if 'wgLBFactoryConf' not in results:
             raise ValueError("missing wgLBFactoryConf")
@@ -280,11 +280,11 @@ class DbInfo(object):
             return dbconn.cursor()
         except MySQLdb.Error as ex:
             self.log.warning("failed to connect to or get cursor from %s:%s, %s %s",
-                             host, port, ex[0], ex[1])
+                             host, port, ex.args[0], ex.args[1])
             return None
 
 
-class TableDiffs(object):
+class TableDiffs():
     '''
     methods for comparing and displaying db table structure info
     '''
@@ -536,7 +536,7 @@ class TableDiffs(object):
             self.display_diffs_master_per_sect(results)
 
 
-class TableInfo(object):
+class TableInfo():
     '''
     methods for retrieving db table structure info
     '''
@@ -593,7 +593,7 @@ class TableInfo(object):
             dbcursor.execute(querystr)
             results = dbcursor.fetchall()
         except MySQLdb.Error as ex:
-            print("Failed to retrieve mysql version, %s %s", ex[0], ex[1])
+            print("Failed to retrieve mysql version, %s %s", ex.args[0], ex.args[1])
 
         # format:     (('version', '10.2.17-MariaDB-log'),)
         print("dbhost:", dbhost, "version:", results[0][1])
@@ -625,7 +625,7 @@ class TableInfo(object):
             dbcursor.execute(querystr)
             dbcursor.fetchall()
         except MySQLdb.OperationalError as ex:
-            if ex[0] == 1049:
+            if ex.args[0] == 1049:
                 # this host no longer serves this wikidb
                 return None
             raise
@@ -649,7 +649,7 @@ class TableInfo(object):
             # the caller can continue processing info
             # on other tables or from other hosts
             self.log.warning("exception checking table existence %s: %s %s",
-                             table, ex[0], ex[1])
+                             table, ex.args[0], ex.args[1])
             return None
         return bool(result)
 
@@ -677,7 +677,7 @@ class TableInfo(object):
             # return something empty so that the caller can continue
             # processing info on other tables or from other hosts
             self.log.warning("exception checking table structure %s: %s %s",
-                             table, ex[0], ex[1])
+                             table, ex.args[0], ex.args[1])
             return {}
 
         return self.format_create_table_info(results)
@@ -713,7 +713,7 @@ class TableInfo(object):
         self.tablediffs.display_diffs(results, main_master, main_wiki)
 
 
-class OptSetup(object):
+class OptSetup():
     '''
     methods for getting command line opts, setting defaults, checking resulting values
     '''
@@ -731,7 +731,7 @@ class OptSetup(object):
             sys.stderr.write(message)
             sys.stderr.write('\n')
         usage_message = """
-Usage: check_table_structures.py  --tables name[,name...]
+Usage: python3 check_table_structures.py  --tables name[,name...]
     [--wikifile <path>|--wikilist name[,name...]]
     [--dbhosts host[,host...]]
     [--master <host>] [--main_wiki <name>]
@@ -873,15 +873,12 @@ Flags:
         for (opt, val) in options:
             if not self.get_opt(opt, val, args):
                 if not self.get_flag(opt, args):
-                    self.usage("Unknown option specified: <%s>" % opt)
+                    self.usage("Unknown option specified: <{opt}>".format(opt=opt))
 
         if remainder:
-            self.usage("Unknown option specified: <%s>" % remainder)
+            self.usage("Unknown option specified: <{opt}>".format(opt=remainder))
 
-        if 'settings' in args:
-            globalconfigfile = args['settings']
-        else:
-            globalconfigfile = None
+        globalconfigfile = args.get('settings')
         conf = ConfigReader(globalconfigfile)
         conf_settings = conf.parse_config()
         # merge conf_settings into args, where conf_settings values are used for fallback
