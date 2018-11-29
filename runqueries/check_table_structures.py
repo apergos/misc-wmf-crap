@@ -25,6 +25,7 @@ from collections import OrderedDict
 import time
 import MySQLdb
 import queries.config as qconfig
+import queries.logger as qlogger
 
 
 class DbInfo():
@@ -34,6 +35,7 @@ class DbInfo():
     are managed here
     '''
     def __init__(self, args):
+        qlogger.logging_setup()
         if args['verbose']:
             log_type = 'verbose'
         else:
@@ -494,6 +496,7 @@ class TableInfo():
         self.dbinfo = dbinfo
         self.tables = tables
         self.dryrun = dryrun
+        qlogger.logging_setup()
         if verbose:
             log_type = 'verbose'
         else:
@@ -852,37 +855,6 @@ Flags:
                 filename=filename))
         wikis = open(filename).read().splitlines()
         return wikis
-
-
-logging.config.dictConfig({
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'simple': {
-            'format': "[%(levelname)s]: %(message)s"
-        },
-    },
-    'handlers': {
-        'console': {
-            'level': 'INFO',
-            'class': 'logging.StreamHandler',
-            'stream': sys.stdout,
-            'formatter': 'simple'
-        },
-    },
-    'loggers': {
-        'verbose': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': True
-        },
-        'normal': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': True
-        }
-    }
-})
 
 
 def do_main():

@@ -36,6 +36,7 @@ import MySQLdb
 import yaml
 from prettytable import PrettyTable
 import queries.config as qconfig
+import queries.logger as qlogger
 
 
 def async_query(cursor, wiki, query, log):
@@ -74,6 +75,7 @@ class QueryInfo():
     def __init__(self, yamlfile, queryfile, configfile, dryrun, verbose):
         self.verbose = verbose
         self.dryrun = dryrun
+        qlogger.logging_setup()
         if verbose or dryrun:
             log_type = 'verbose'
         else:
@@ -491,43 +493,6 @@ def check_mandatory_args(yamlfile, queryfile, configfile):
         usage("Mandatory argument 'queryfile' not specified")
     if configfile is None:
         usage("Mandatory argument 'configfile' not specified")
-
-
-logging.config.dictConfig({
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'simple': {
-            'format': "[%(levelname)s]: %(message)s"
-        },
-    },
-    'handlers': {
-        'console': {
-            'level': 'WARNING',
-            'class': 'logging.StreamHandler',
-            'stream': sys.stderr,
-            'formatter': 'simple'
-        },
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'explain_errors.log',
-            'formatter': 'simple'
-        },
-    },
-    'loggers': {
-        'verbose': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True
-        },
-        'normal': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': True
-        }
-    }
-})
 
 
 def do_main():
