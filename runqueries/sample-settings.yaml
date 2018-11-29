@@ -1,9 +1,10 @@
+
 # list of servers, wikis, and values to be substituted into
 # a query template on each server
 # All variables will be converted to upper case and prefixed
 # with a '$' and that string in the template will be substituted
 # with the supplied value
-# Shard names aren't used for anything except as a way to group
+# Section names ('foo') aren't used for anything except as a way to group
 # servers together
 
 servers:

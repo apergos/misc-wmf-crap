@@ -124,8 +124,8 @@ class QueryInfo():
         '''
         find and return the first wiki db name in the settings
         '''
-        shards = list(self.settings['servers'].keys())
-        return list(self.settings['servers'][shards[0]]['wikis'].keys())[0]
+        sections = list(self.settings['servers'].keys())
+        return list(self.settings['servers'][sections[0]]['wikis'].keys())[0]
 
     def prettyprint_query(self, querystring):
         '''
@@ -376,10 +376,10 @@ class QueryInfo():
         run all queries on all wikis for each host, with variables in
         the query template filled in appropriately
         '''
-        for shard in self.settings['servers']:
-            self.print_and_log("*** SHARD: {shard}".format(shard=shard))
-            for host in self.settings['servers'][shard]['hosts']:
-                self.run_on_server(host, self.settings['servers'][shard]['wikis'])
+        for section in self.settings['servers']:
+            self.print_and_log("*** SECTION: {section}".format(section=section))
+            for host in self.settings['servers'][section]['hosts']:
+                self.run_on_server(host, self.settings['servers'][section]['wikis'])
 
 
 SETTINGS = ['multiversion', 'mwrepo', 'php']

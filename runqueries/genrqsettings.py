@@ -324,7 +324,7 @@ def display(namespace, title, bigpage_id, revid, startpage, endpage, section, wi
     write one config stanza with the given values
     '''
     stanza = """servers:
-  {shard}:
+  {section}:
     hosts:
       - FILL IN
     wikis:
@@ -335,7 +335,7 @@ def display(namespace, title, bigpage_id, revid, startpage, endpage, section, wi
         endpage: '{end}'
         namespace: '{ns}'
         title: {title}"""
-    print(stanza.format(wikidb=wikidb, shard=section,
+    print(stanza.format(wikidb=wikidb, section=section,
                         pageid=bigpage_id.decode('utf-8'), revid=revid.decode('utf-8'),
                         start=startpage, end=endpage, ns=namespace, title=title))
 
@@ -362,7 +362,7 @@ See the sample-genrq.conf for an example config file.
 
 Arguments:
     --settings   (-s)   File with settings for host to run revsperpage, path
-                        to php file with db shard info
+                        to php file with db section info
                         default: genrqsettings.conf
     --wikidb     (-w)   Name of wiki database (e.g. enwiki) for which to generate
                         show explain query config data
