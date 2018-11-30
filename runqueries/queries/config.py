@@ -9,7 +9,7 @@ import sys
 
 
 SETTINGS = ['domain', 'dumpsdir', 'dumpshost', 'multiversion', 'mwhost', 'mwrepo', 'php',
-            'tables', 'wikifile', 'wikilist']
+            'sudouser', 'tables', 'wikifile', 'wikilist']
 
 
 def config_setup(configfile):
@@ -41,6 +41,7 @@ def get_config_defaults():
         'mwhost': '',
         'mwrepo': '/srv/mediawiki',
         'php': '/usr/bin/php',
+        'sudouser': '',
         'tables': '',
         'wikifile': 'all.dblist',
         'wikilist': '',

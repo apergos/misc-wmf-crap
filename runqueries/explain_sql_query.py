@@ -24,19 +24,18 @@ and db cursor.
 
 import os
 import getopt
-import json
 import logging
 import logging.config
 import re
 import sys
 import threading
-from subprocess import Popen, PIPE
 import warnings
 import MySQLdb
 import yaml
 from prettytable import PrettyTable
 import queries.config as qconfig
 import queries.logger as qlogger
+import queries.dbinfo as qdbinfo
 
 
 def async_query(cursor, wiki, query, log):
@@ -72,11 +71,10 @@ class QueryInfo():
     munge and run queries on db servers for specific wikis
     '''
 
-    def __init__(self, yamlfile, queryfile, configfile, dryrun, verbose):
-        self.verbose = verbose
-        self.dryrun = dryrun
+    def __init__(self, yamlfile, queryfile, args):
+        self.args = args
         qlogger.logging_setup()
-        if verbose or dryrun:
+        if self.args['verbose'] or self.args['dryrun']:
             log_type = 'verbose'
         else:
             log_type = 'normal'
@@ -87,7 +85,8 @@ class QueryInfo():
         # choose the first wiki we find in the yaml file, for db creds.
         # yes, this means all your wikis better have the same credentials
         wikidb = self.get_first_wiki()
-        self.dbcreds = get_dbcreds(configfile, self.log, wikidb, dryrun)
+        self.dbinfo = qdbinfo.DbInfo(args)
+        self.dbcreds = self.dbinfo.get_dbcreds(wikidb)
 
     @staticmethod
     def get_settings_from_yaml(yamlfile):
@@ -139,31 +138,6 @@ class QueryInfo():
         result = ''.join(lines)
         return result
 
-    def get_db_cursor(self, dbhost):
-        '''
-        set up db connection, get a connection and a db cursor,
-        return the cursor along the thread id for the connection
-        '''
-        if self.dryrun:
-            return None, None
-
-        if ':' in dbhost:
-            fields = dbhost.split(':')
-            host = fields[0]
-            port = int(fields[1])
-        else:
-            host = dbhost
-            port = 3306
-        try:
-            dbconn = MySQLdb.connect(
-                host=host, port=port,
-                user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
-            return dbconn.cursor(), dbconn.thread_id()
-        except MySQLdb.Error as ex:
-            raise MySQLdb.Error("failed to connect to or get cursor from "
-                                "{host}:{port}, {errno}:{message}".format(
-                                    host=host, port=port, errno=ex.args[0], message=ex.args[1]))
-
     def fillin_query_template(self, wiki_settings):
         '''
         fill in and return the query template with the
@@ -185,7 +159,7 @@ class QueryInfo():
         does a simple 'USE wikidbname'. That is all.
         '''
         usequery = 'USE ' + wiki + ';'
-        if self.dryrun:
+        if self.args['dryrun']:
             self.log.info("would run %s", self.prettyprint_query(usequery))
             return
         self.log.info("running %s", usequery)
@@ -204,7 +178,7 @@ class QueryInfo():
         thread, so we can do other things while it's running
         (for loose values of 'while')
         '''
-        if self.dryrun:
+        if self.args['dryrun']:
             self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
             return None
         self.log.info("running:")
@@ -218,9 +192,12 @@ class QueryInfo():
         return True if exists, not if not, and None if we
         couldn't get  result
         '''
-        cursor, _unused = self.get_db_cursor(host)
+        if self.args['dryrun']:
+            cursor = None
+        else:
+            cursor, _unused = self.dbinfo.get_cursor(host)
         query = 'SHOW PROCESSLIST;'
-        if self.dryrun:
+        if self.args['dryrun']:
             self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
             return False
         self.log.info("running:")
@@ -262,7 +239,7 @@ class QueryInfo():
         initialized db cursor
         '''
         explain_query = 'SHOW EXPLAIN FOR ' + thread_id + ';'
-        if self.dryrun:
+        if self.args['dryrun']:
             self.log.info("would run %s", self.prettyprint_query(explain_query).encode('utf-8'))
             return None, None
         self.log.info("running:")
@@ -288,7 +265,7 @@ class QueryInfo():
         the thread and deal with errors
         '''
         kill_query = 'KILL ' + thread_id
-        if self.dryrun:
+        if self.args['dryrun']:
             self.log.info("would run %s", self.prettyprint_query(kill_query).encode('utf-8'))
             return
 
@@ -320,7 +297,10 @@ class QueryInfo():
         our query, show explain it, then shoot
         the query
         '''
-        cursor, _unused = self.get_db_cursor(host)
+        if self.args['dryrun']:
+            cursor = None
+        else:
+            cursor, _unused = self.dbinfo.get_cursor(host)
 
         explain_result, description = self.explain(cursor, wiki, thread_id)
         self.kill(cursor, wiki, thread_id)
@@ -351,17 +331,20 @@ class QueryInfo():
         queries = self.fillin_query_template(wiki_settings)
         for query in queries:
             self.log.info("*** Starting new query check")
-            cursor, thread_id = self.get_db_cursor(host)
+            if self.args['dryrun']:
+                cursor, thread_id = None, None
+            else:
+                cursor, thread_id = self.dbinfo.get_cursor(host)
             self.do_use_wiki(cursor, wiki)
             thr = self.start_query(cursor, wiki, query)
-            if self.dryrun:
+            if self.args['dryrun']:
                 thread_id = '<none (dryrun)>'
             else:
                 thread_id = str(thread_id)
             self.explain_and_kill(host, wiki, thread_id, query)
             if cursor is not None:
                 cursor.close()
-            if not self.dryrun:
+            if not self.args['dryrun']:
                 thr.join()
 
     def run_on_server(self, host, wikis_info):
@@ -382,41 +365,6 @@ class QueryInfo():
             self.print_and_log("*** SECTION: {section}".format(section=section))
             for host in self.settings['servers'][section]['hosts']:
                 self.run_on_server(host, self.settings['servers'][section]['wikis'])
-
-
-def get_dbcreds(configfile, log, wikidb, dryrun):
-    '''
-    initialize db credentials by running a MW maintenance script to get the
-    value of the user and password
-    '''
-    config = qconfig.config_setup(configfile)
-    pull_vars = ["wgDBuser", "wgDBpassword"]
-    phpscript = 'getConfiguration.php'
-    if config['multiversion']:
-        mwscript = os.path.join(config['multiversion'], 'MWScript.php')
-        command = [config['php'], mwscript, phpscript]
-    else:
-        command = [config['php'],
-                   "{repo}/maintenance/{script}".format(
-                       repo=config['mwrepo'], script=phpscript)]
-
-    command.extend(["--wiki={dbname}".format(dbname=wikidb),
-                    '--format=json', '--regex={vars}'.format(vars="|".join(pull_vars))])
-    log.info("would run %s", " ".join(command))
-    if dryrun:
-        return {'wgDBuser': 'XXXXX', 'wgDBpassword': 'XXXXX'}
-    proc = Popen(command, stdout=PIPE, stderr=PIPE)
-    output, error = proc.communicate()
-    if error:
-        log.error("Errors encountered: %s", error.decode('utf-8'))
-        sys.exit(1)
-    log.info("got db creds: %s", output.decode('utf-8'))
-    creds = json.loads(output.decode('utf-8'))
-    if 'wgDBuser' not in creds or not creds['wgDBuser']:
-        raise ValueError("Missing value for wgDBuser")
-    if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
-        raise ValueError("Missing value for wgDBpassword")
-    return creds
 
 
 def usage(message=None):
@@ -454,7 +402,7 @@ they may be in any case. See samplesettings.yaml for an example.
 Output:
 
 With verbose mode enabled, all logging messages get written to a file in the
-current working directory, 'explain_errors.log'.
+current working directory, 'sql_checker_errors.log'.
 
 All errors or warnings are written to stderr, in addition to possibly being
 logged to a file (see above).
@@ -499,11 +447,12 @@ def do_main():
     '''
     entry point
     '''
+    args = {}
     yamlfile = None
     queryfile = None
     configfile = None
-    dryrun = False
-    verbose = False
+    args['dryrun'] = False
+    args['verbose'] = False
 
     try:
         (options, remainder) = getopt.gnu_getopt(
@@ -522,16 +471,24 @@ def do_main():
         elif opt in ['-h', '--help']:
             usage("Help for this script")
         elif opt in ['-d', '--dryrun']:
-            dryrun = True
+            args['dryrun'] = True
         elif opt in ['-v', '--verbose']:
-            verbose = True
+            args['verbose'] = True
 
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
     check_mandatory_args(yamlfile, queryfile, configfile)
 
-    query = QueryInfo(yamlfile, queryfile, configfile, dryrun, verbose)
+    conf = qconfig.config_setup(configfile)
+    for setting in qconfig.SETTINGS:
+        if setting not in args:
+            args[setting] = conf[setting]
+
+    # even if this is set in the config file for use by other scripts, we want it off
+    args['mwhost'] = None
+
+    query = QueryInfo(yamlfile, queryfile, args)
     query.run()
 
 

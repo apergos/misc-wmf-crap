@@ -17,219 +17,14 @@ be fast, we don't want to impact other traffic.
 import os
 import sys
 import getopt
-import json
 import logging
 import logging.config
-from subprocess import Popen, PIPE
 from collections import OrderedDict
 import time
 import MySQLdb
 import queries.config as qconfig
 import queries.logger as qlogger
-
-
-class DbInfo():
-    '''
-    which db servers handle which wikis,
-    database user credentials, etc
-    are managed here
-    '''
-    def __init__(self, args):
-        qlogger.logging_setup()
-        if args['verbose']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
-        self.args = args
-        self.args['dbhosts'], self.wikis_to_sections, self.dbhosts_by_section = self.setup_dbhosts()
-        self.dbcreds = self.get_dbcreds()
-
-    def get_dbcreds(self):
-        '''
-        looking for values for wgDBuser, wgDBpassword (no need for us to
-        have a privileged user for this work) by running a mw maintenance script
-        '''
-        wikidb = self.args['wikilist'][0]
-        pull_vars = ["wgDBuser", "wgDBpassword"]
-        phpscript = 'getConfiguration.php'
-        if self.args['multiversion']:
-            mwscript = os.path.join(self.args['multiversion'], 'MWScript.php')
-            command = [self.args['php'], mwscript, phpscript]
-        else:
-            command = [self.args['php'], "{repo}/maintenance/{script}".format(
-                repo=self.args['mwrepo'], script=phpscript)]
-
-        command.extend(["--wiki={dbname}".format(dbname=wikidb),
-                        '--format=json', '--regex={vars}'.format(vars="|".join(pull_vars))])
-        if self.args['dryrun']:
-            print("would run command:", command)
-            return {'wgDBuser': 'wikiuser', 'wgDBpassword': 'fakepwd'}
-        self.log.info("running command: %s", command)
-        proc = Popen(command, stdout=PIPE, stderr=PIPE)
-        output, error = proc.communicate()
-        if error:
-            self.log("Errors encountered: %s", error.decode('utf-8'))
-            sys.exit(1)
-        self.log.info("got db creds: %s", output.decode('utf-8'))
-        creds = json.loads(output.decode('utf-8'))
-        if 'wgDBuser' not in creds or not creds['wgDBuser']:
-            raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
-        if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
-            raise ValueError("Missing value for wgDBpassword, bad dbcreds file?")
-        return creds
-
-    def setup_dbhosts(self):
-        '''
-        try to get and save dbhosts from wgLBFactoryConf stuff
-        if we don't have an explicit list passed in
-        '''
-        wikidb = self.args['wikilist'][0]
-        dbhosts = self.args['dbhosts']
-        wikis_to_sections = {}
-        dbhosts_by_section = {}
-        if not dbhosts:
-            dbhosts, wikis_to_sections, dbhosts_by_section = (
-                self.get_dbhosts(self.args['php'], wikidb,
-                                 self.args['multiversion'], self.args['mwrepo']))
-        if not dbhosts and not self.args['dryrun']:
-            raise ValueError("No list of db hosts provided to process")
-        return list(set(dbhosts)), wikis_to_sections, dbhosts_by_section
-
-    def is_master(self, dbhost):
-        '''
-        check if a dbhost is a master for some section; if no section info
-        is available, assume the answer is yes
-        this assumes no host is a master on one section and a replica on others
-        '''
-        listed = False
-        if not self.dbhosts_by_section:
-            return True
-        for section in self.dbhosts_by_section:
-            # master is in 'slot 0'
-            if dbhost == list(self.dbhosts_by_section[section].keys())[0]:
-                return True
-            if dbhost in self.dbhosts_by_section[section]:
-                listed = True
-        if listed:
-            return False
-        return True
-
-    def get_masters(self):
-        '''
-        return all dbs that are (probably) masters based on config file info
-        '''
-        return [dbhost for dbhost in self.args['dbhosts'] if self.is_master(dbhost)]
-
-    def get_dbhosts(self, php, wikidb, multiversion, mwrepo):
-        '''
-        get list of dbs and section-related info from wgLBFactoryConf stuff
-        by running a mw maintenance script
-        '''
-        pull_var = 'wgLBFactoryConf'
-        phpscript = 'getConfiguration.php'
-        if multiversion:
-            command = [php, os.path.join(multiversion, 'MWScript.php'), phpscript]
-        else:
-            command = [php, "{repo}/maintenance/{script}".format(repo=mwrepo, script=phpscript)]
-
-        command.extend(["--wiki={dbname}".format(dbname=wikidb),
-                        '--format=json', '--regex={var}'.format(var=pull_var)])
-        if self.args['dryrun']:
-            print("would run command:", command)
-            return [], {}, {}
-        self.log.info("running command: %s", command)
-        proc = Popen(command, stdout=PIPE, stderr=PIPE)
-        output, error = proc.communicate()
-        if error:
-            self.log.error("Errors encountered: %s", error.decode('utf-8'))
-            sys.exit(1)
-        self.log.info("got db host info: %s", output.decode('utf-8'))
-        results = json.loads(output.decode('utf-8'), object_pairs_hook=OrderedDict)
-        lbfactoryconf = results['wgLBFactoryConf']
-        if 'wgLBFactoryConf' not in results:
-            raise ValueError("missing wgLBFactoryConf")
-        lbfactoryconf = results['wgLBFactoryConf']
-        if 'sectionLoads' not in lbfactoryconf:
-            raise ValueError("missing sectionLoads from wgLBFactoryConf")
-        if 'sectionsByDB' not in lbfactoryconf:
-            raise ValueError("missing sectionsByDB from wgLBFactoryConf")
-        dbs = []
-        for section in lbfactoryconf['sectionLoads']:
-            if section.startswith('s') or section == 'DEFAULT':
-                # only process these, anything else can be skipped
-                dbs.extend(list(lbfactoryconf['sectionLoads'][section]))
-        return(dbs, lbfactoryconf['sectionsByDB'],
-               lbfactoryconf['sectionLoads'])
-
-    def get_dbhosts_for_wiki(self, wiki):
-        '''
-        get list of db servers that have a specified wiki db
-        if we have no section information for the wiki and no
-        info about a DEFAULT section, assume wiki is served
-        by all db servers
-        '''
-        if not self.wikis_to_sections or not self.dbhosts_by_section:
-            # assume all wikis are handled by all dbhosts
-            return self.args['dbhosts']
-        if wiki not in self.wikis_to_sections:
-            section = 'DEFAULT'
-        else:
-            section = self.wikis_to_sections[wiki]
-        if section not in self.dbhosts_by_section:
-            return None
-        return list(self.dbhosts_by_section[section])
-
-    def get_wikis_for_section(self, section, wikilist):
-        '''
-        get list of wikis from given list of wikis that are
-        in a specified section
-        '''
-        if section == 'DEFAULT':
-            # there will be no list, return everything not named in wiki-section mapping
-            return [wiki for wiki in wikilist if wiki not in self.wikis_to_sections]
-        # section should have wikis in the mapping, return those
-        return [wiki for wiki in wikilist if wiki in self.wikis_to_sections and
-                self.wikis_to_sections[wiki] == section]
-
-    def get_wikis_for_dbhost(self, dbhost, wikilist):
-        '''
-        get wiki dbs served by a given db host, using db config info
-        previously read from a file, or if no such information is available
-        for the given host, assume all wikis are hosted by it
-        '''
-        if not self.wikis_to_sections or not self.dbhosts_by_section:
-            # assume all db hosts handle all wikis
-            return wikilist
-        wikis = []
-        for section in self.dbhosts_by_section:
-            if dbhost in self.dbhosts_by_section[section]:
-                wikis.extend(self.get_wikis_for_section(section, wikilist))
-        return list(set(wikis))
-
-    def get_cursor(self, dbhost):
-        '''
-        split the db host string into hostname and port if necessary,
-        open a connection, get and return a cursor
-        '''
-        if ':' in dbhost:
-            fields = dbhost.split(':')
-            host = fields[0]
-            port = int(fields[1])
-        else:
-            host = dbhost
-            port = 3306
-        if self.args['domain']:
-            host = host + '.' + self.args['domain']
-        try:
-            dbconn = MySQLdb.connect(
-                host=host, port=port,
-                user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
-            return dbconn.cursor()
-        except MySQLdb.Error as ex:
-            self.log.warning("failed to connect to or get cursor from %s:%s, %s %s",
-                             host, port, ex.args[0], ex.args[1])
-            return None
+import queries.dbinfo as qdbinfo
 
 
 class TableDiffs():
@@ -497,7 +292,7 @@ class TableInfo():
         self.tables = tables
         self.dryrun = dryrun
         qlogger.logging_setup()
-        if verbose:
+        if verbose or dryrun:
             log_type = 'verbose'
         else:
             log_type = 'normal'
@@ -653,7 +448,8 @@ class TableInfo():
             if self.dryrun:
                 dbcursor = None
             else:
-                dbcursor = self.dbinfo.get_cursor(dbhost)
+                dbcursor, _unused = self.dbinfo.get_cursor(
+                    dbhost, set_domain=True, warn_on_err=True)
                 if not dbcursor:
                     # problem host, move on
                     continue
@@ -864,7 +660,10 @@ def do_main():
     setup = OptSetup()
     args = setup.args
 
-    dbinfo = DbInfo(args)
+    # even if this is set in the config file for use by other scripts, we want it off
+    args['mwhost'] = None
+
+    dbinfo = qdbinfo.DbInfo(args)
     tableinfo = TableInfo(dbinfo, args['tables'], args['dryrun'], args['verbose'])
     tableinfo.show_tables_for_wikis(args['wikilist'], args['main_master'], args['main_wiki'])
 

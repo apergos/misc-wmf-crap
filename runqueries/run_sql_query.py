@@ -10,30 +10,29 @@ the output to stdout
 
 import os
 import getopt
-import json
 import re
 import sys
-from subprocess import Popen, PIPE
 import warnings
 import MySQLdb
 import yaml
 from prettytable import PrettyTable
 import queries.config as qconfig
+import queries.dbinfo as qdbinfo
 
 
 class QueryInfo():
     '''
     munge and run queries on db servers for specific wikis
     '''
-    def __init__(self, yamlfile, queryfile, configfile, dryrun, verbose):
-        self.verbose = verbose
-        self.dryrun = dryrun
+    def __init__(self, yamlfile, queryfile, args):
+        self.args = args
         self.settings = self.get_settings_from_yaml(yamlfile)
         self.queries = self.get_queries_from_file(queryfile)
         # choose the first wiki we find in the yaml file, for db creds.
         # yes, this means all your wikis better have the same credentials
         wikidb = self.get_first_wiki()
-        self.dbcreds = get_dbcreds(configfile, wikidb, dryrun, verbose)
+        self.dbinfo = qdbinfo.DbInfo(args)
+        self.dbcreds = self.dbinfo.get_dbcreds(wikidb)
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
 
     @staticmethod
@@ -86,27 +85,6 @@ class QueryInfo():
         result = ''.join(lines)
         return result
 
-    def get_db_cursor(self, dbhost):
-        '''
-        set up db connection, get and return a db cursor
-        '''
-        if ':' in dbhost:
-            fields = dbhost.split(':')
-            host = fields[0]
-            port = int(fields[1])
-        else:
-            host = dbhost
-            port = 3306
-        try:
-            dbconn = MySQLdb.connect(
-                host=host, port=port,
-                user=self.dbcreds['wgDBuser'], passwd=self.dbcreds['wgDBpassword'])
-            return dbconn.cursor()
-        except MySQLdb.Error as ex:
-            raise MySQLdb.Error("failed to connect to or get cursor from "
-                                "{host}:{port}, {errno}:{message}".format(
-                                    host=host, port=port, errno=ex.args[0], message=ex.args[1]))
-
     def fillin_query_template(self, wiki_settings):
         '''
         fill in and return the query template with the
@@ -131,12 +109,12 @@ class QueryInfo():
         print("wiki:", wiki)
         queries = self.fillin_query_template(wiki_settings)
         usequery = 'USE ' + wiki + ';'
-        if self.dryrun:
+        if self.args['dryrun']:
             print("would run", self.prettyprint(usequery))
             for query in queries:
                 print("would run", self.prettyprint(query))
             return
-        if self.verbose:
+        if self.args['verbose']:
             print("running", usequery)
         try:
             cursor.execute(usequery)
@@ -145,7 +123,7 @@ class QueryInfo():
             raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
                 wiki=wiki, errno=ex.args[0], message=ex.args[1]))
         for query in queries:
-            if self.verbose:
+            if self.args['verbose']:
                 print("running:")
                 print(self.prettyprint(query))
             try:
@@ -170,13 +148,13 @@ class QueryInfo():
         filling in the query template
         '''
         print("host:", host)
-        if self.dryrun:
+        if self.args['dryrun']:
             cursor = None
         else:
-            cursor = self.get_db_cursor(host)
+            cursor, _unused = self.dbinfo.get_cursor(host)
         for wiki in wikis_info:
             self.run_on_wiki(cursor, wiki, wikis_info[wiki])
-        if not self.dryrun:
+        if not self.args['dryrun']:
             cursor.close()
 
     def run(self):
@@ -188,44 +166,6 @@ class QueryInfo():
             print("info for section", section)
             for host in self.settings['servers'][section]['hosts']:
                 self.run_on_server(host, self.settings['servers'][section]['wikis'])
-
-
-def get_dbcreds(configfile, wikidb, dryrun, verbose):
-    '''
-    initialize db credentials by running a MW maintenance script to get the
-    value of the user and password
-    '''
-    config = qconfig.config_setup(configfile)
-    pull_vars = ["wgDBuser", "wgDBpassword"]
-    phpscript = 'getConfiguration.php'
-    if config['multiversion']:
-        mwscript = os.path.join(config['multiversion'], 'MWScript.php')
-        command = [config['php'], mwscript, phpscript]
-    else:
-        command = [config['php'],
-                   "{repo}/maintenance/{script}".format(
-                       repo=config['mwrepo'], script=phpscript)]
-
-    command.extend(["--wiki={dbname}".format(dbname=wikidb),
-                    '--format=json', '--regex={vars}'.format(vars="|".join(pull_vars))])
-    if dryrun:
-        print("would run command:", command)
-        return {}
-    if verbose:
-        print("running command:", command)
-    proc = Popen(command, stdout=PIPE, stderr=PIPE)
-    output, error = proc.communicate()
-    if error:
-        print("Errors encountered:", error.decode('utf-8'))
-        sys.exit(1)
-    if verbose:
-        print("got db creds:", output.decode('utf-8'))
-    creds = json.loads(output.decode('utf-8'))
-    if 'wgDBuser' not in creds or not creds['wgDBuser']:
-        raise ValueError("Missing value for wgDBuser")
-    if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
-        raise ValueError("Missing value for wgDBpassword")
-    return creds
 
 
 def usage(message=None):
@@ -286,11 +226,12 @@ def do_main():
     '''
     entry point
     '''
+    args = {}
     yamlfile = None
     queryfile = None
     configfile = None
-    dryrun = False
-    verbose = False
+    args['dryrun'] = False
+    args['verbose'] = False
 
     try:
         (options, remainder) = getopt.gnu_getopt(
@@ -309,9 +250,9 @@ def do_main():
         elif opt in ['-h', '--help']:
             usage("Help for this script")
         elif opt in ['-d', '--dryrun']:
-            dryrun = True
+            args['dryrun'] = True
         elif opt in ['-v', '--verbose']:
-            verbose = True
+            args['verbose'] = True
 
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
@@ -323,7 +264,15 @@ def do_main():
     if configfile is None:
         usage("Mandatory argument 'configfile' not specified")
 
-    query = QueryInfo(yamlfile, queryfile, configfile, dryrun, verbose)
+    conf = qconfig.config_setup(configfile)
+    for setting in qconfig.SETTINGS:
+        if setting not in args:
+            args[setting] = conf[setting]
+
+    # even if this is set in the config file for use by other scripts, we want it off
+    args['mwhost'] = None
+
+    query = QueryInfo(yamlfile, queryfile, args)
     query.run()
 
 

@@ -8,6 +8,7 @@ to set up logging
 
 
 import logging
+import logging.config
 import sys
 
 
@@ -34,7 +35,7 @@ def logging_setup():
             'file': {
                 'level': 'INFO',
                 'class': 'logging.FileHandler',
-                'filename': 'explain_errors.log',
+                'filename': 'sql_checker_errors.log',
                 'formatter': 'simple'
             },
         },
