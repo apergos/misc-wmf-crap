@@ -5,6 +5,7 @@ misc utils
 
 
 import os
+import yaml
 
 
 MWSCRIPT = 'MWScript.php'
@@ -94,3 +95,47 @@ def build_command(command_base, ssh_host=None, sudo_user=None, mwscript=None, ph
         sshcmd = [SSH, ssh_host]
         command = prepend_command(command, sshcmd)
     return command
+
+
+def get_settings_from_yaml(yamlfile):
+    '''
+    read and return the contents from the yaml settings file
+    '''
+    if not os.path.exists(yamlfile):
+        raise ValueError("no such yaml file " + yamlfile)
+    contents = open(yamlfile).read()
+    settings = yaml.load(contents)
+    return settings
+
+
+def get_queries_from_file(queryfile):
+    '''
+    read and return the contents from the query file
+    '''
+    if not os.path.exists(queryfile):
+        raise ValueError("no such file for queries " + queryfile)
+    contents = open(queryfile).read()
+    return contents
+
+
+def pad_line(line):
+    '''
+    for all but blank lines and lines starting with '#', add a newline on the end,
+    then return the result
+    '''
+    if line.startswith('#'):
+        line = line + '\n'
+    elif line:
+        line = ' ' + line
+    return line
+
+
+def prettyprint_query(querystring):
+    '''
+    strip newline from end of non-comment lines of the querystring, print the
+    results
+    '''
+    lines = querystring.splitlines()
+    lines = [pad_line(line) for line in lines]
+    result = ''.join(lines)
+    return result

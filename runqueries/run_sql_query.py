@@ -8,16 +8,15 @@ the output to stdout
 """
 
 
-import os
 import getopt
 import re
 import sys
 import warnings
 import MySQLdb
-import yaml
 from prettytable import PrettyTable
 import queries.config as qconfig
 import queries.dbinfo as qdbinfo
+import queries.utils as qutils
 
 
 class QueryInfo():
@@ -26,8 +25,8 @@ class QueryInfo():
     '''
     def __init__(self, yamlfile, queryfile, args):
         self.args = args
-        self.settings = self.get_settings_from_yaml(yamlfile)
-        self.queries = self.get_queries_from_file(queryfile)
+        self.settings = qutils.get_settings_from_yaml(yamlfile)
+        self.queries = qutils.get_queries_from_file(queryfile)
         # choose the first wiki we find in the yaml file, for db creds.
         # yes, this means all your wikis better have the same credentials
         wikidb = self.get_first_wiki()
@@ -35,55 +34,12 @@ class QueryInfo():
         self.dbcreds = self.dbinfo.get_dbcreds(wikidb)
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
 
-    @staticmethod
-    def get_settings_from_yaml(yamlfile):
-        '''
-        read and return the contents from the yaml settings file
-        '''
-        if not os.path.exists(yamlfile):
-            raise ValueError("no such yaml file " + yamlfile)
-        contents = open(yamlfile).read()
-        settings = yaml.load(contents)
-        return settings
-
-    @staticmethod
-    def get_queries_from_file(queryfile):
-        '''
-        read and return the contents from the query file
-        '''
-        if not os.path.exists(queryfile):
-            raise ValueError("no such file for queries " + queryfile)
-        contents = open(queryfile).read()
-        return contents
-
-    @staticmethod
-    def pad_line(line):
-        '''
-        for all but blank lines and lines starting with '#', add a newline on the end,
-        then return the result
-        '''
-        if line.startswith('#'):
-            line = line + '\n'
-        elif line:
-            line = ' ' + line
-        return line
-
     def get_first_wiki(self):
         '''
         find and return the first wiki db name in the settings
         '''
         sections = list(self.settings['servers'].keys())
         return list(self.settings['servers'][sections[0]]['wikis'].keys())[0]
-
-    def prettyprint(self, querystring):
-        '''
-        strip newline from end of non-comment lines of the querystring, print the
-        results
-        '''
-        lines = querystring.splitlines()
-        lines = [self.pad_line(line) for line in lines]
-        result = ''.join(lines)
-        return result
 
     def fillin_query_template(self, wiki_settings):
         '''
@@ -110,9 +66,9 @@ class QueryInfo():
         queries = self.fillin_query_template(wiki_settings)
         usequery = 'USE ' + wiki + ';'
         if self.args['dryrun']:
-            print("would run", self.prettyprint(usequery))
+            print("would run", qutils.prettyprint_query(usequery))
             for query in queries:
-                print("would run", self.prettyprint(query))
+                print("would run", qutils.prettyprint_query(query))
             return
         if self.args['verbose']:
             print("running", usequery)
@@ -125,7 +81,7 @@ class QueryInfo():
         for query in queries:
             if self.args['verbose']:
                 print("running:")
-                print(self.prettyprint(query))
+                print(qutils.prettyprint_query(query))
             try:
                 cursor.execute(query.encode('utf-8'))
                 result = cursor.fetchall()
@@ -133,7 +89,7 @@ class QueryInfo():
                 raise MySQLdb.Error("exception running query on wiki "
                                     "{wiki} ({errno}:{message})".format(
                                         wiki=wiki, errno=ex.args[0], message=ex.args[1]))
-            print(self.prettyprint(query))
+            print(qutils.prettyprint_query(query))
             headers = [desc[0] for desc in cursor.description]
             table = PrettyTable(headers)
             for header in headers:

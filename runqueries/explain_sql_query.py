@@ -22,7 +22,6 @@ and db cursor.
 # * make log file name configurable?
 
 
-import os
 import getopt
 import logging
 import logging.config
@@ -31,11 +30,11 @@ import sys
 import threading
 import warnings
 import MySQLdb
-import yaml
 from prettytable import PrettyTable
 import queries.config as qconfig
 import queries.logger as qlogger
 import queries.dbinfo as qdbinfo
+import queries.utils as qutils
 
 
 def async_query(cursor, wiki, query, log):
@@ -80,46 +79,13 @@ class QueryInfo():
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
-        self.settings = self.get_settings_from_yaml(yamlfile)
-        self.queries = self.get_queries_from_file(queryfile)
+        self.settings = qutils.get_settings_from_yaml(yamlfile)
+        self.queries = qutils.get_queries_from_file(queryfile)
         # choose the first wiki we find in the yaml file, for db creds.
         # yes, this means all your wikis better have the same credentials
         wikidb = self.get_first_wiki()
         self.dbinfo = qdbinfo.DbInfo(args)
         self.dbcreds = self.dbinfo.get_dbcreds(wikidb)
-
-    @staticmethod
-    def get_settings_from_yaml(yamlfile):
-        '''
-        read and return the contents from the yaml settings file
-        '''
-        if not os.path.exists(yamlfile):
-            raise ValueError("no such yaml file " + yamlfile)
-        contents = open(yamlfile).read()
-        settings = yaml.load(contents)
-        return settings
-
-    @staticmethod
-    def get_queries_from_file(queryfile):
-        '''
-        read and return the contents from the query file
-        '''
-        if not os.path.exists(queryfile):
-            raise ValueError("no such file for queries " + queryfile)
-        contents = open(queryfile).read()
-        return contents
-
-    @staticmethod
-    def pad_line(line):
-        '''
-        for all but blank lines and lines starting with '#', add a newline on the end,
-        then return the result
-        '''
-        if line.startswith('#'):
-            line = line + '\n'
-        elif line:
-            line = ' ' + line
-        return line
 
     def get_first_wiki(self):
         '''
@@ -127,16 +93,6 @@ class QueryInfo():
         '''
         sections = list(self.settings['servers'].keys())
         return list(self.settings['servers'][sections[0]]['wikis'].keys())[0]
-
-    def prettyprint_query(self, querystring):
-        '''
-        strip newline from end of non-comment lines of the querystring, print the
-        results
-        '''
-        lines = querystring.splitlines()
-        lines = [self.pad_line(line) for line in lines]
-        result = ''.join(lines)
-        return result
 
     def fillin_query_template(self, wiki_settings):
         '''
@@ -160,7 +116,7 @@ class QueryInfo():
         '''
         usequery = 'USE ' + wiki + ';'
         if self.args['dryrun']:
-            self.log.info("would run %s", self.prettyprint_query(usequery))
+            self.log.info("would run %s", qutils.prettyprint_query(usequery))
             return
         self.log.info("running %s", usequery)
         try:
@@ -179,10 +135,10 @@ class QueryInfo():
         (for loose values of 'while')
         '''
         if self.args['dryrun']:
-            self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(query).encode('utf-8'))
             return None
         self.log.info("running:")
-        self.log.info(self.prettyprint_query(query).encode('utf-8'))
+        self.log.info(qutils.prettyprint_query(query).encode('utf-8'))
         thr = threading.Thread(target=async_query, args=(cursor, wiki, query, self.log))
         thr.start()
         return thr
@@ -198,10 +154,10 @@ class QueryInfo():
             cursor, _unused = self.dbinfo.get_cursor(host)
         query = 'SHOW PROCESSLIST;'
         if self.args['dryrun']:
-            self.log.info("would run %s", self.prettyprint_query(query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(query).encode('utf-8'))
             return False
         self.log.info("running:")
-        self.log.info(self.prettyprint_query(query).encode('utf-8'))
+        self.log.info(qutils.prettyprint_query(query).encode('utf-8'))
         try:
             cursor.execute(query.encode('utf-8'))
             result = cursor.fetchall()
@@ -240,10 +196,10 @@ class QueryInfo():
         '''
         explain_query = 'SHOW EXPLAIN FOR ' + thread_id + ';'
         if self.args['dryrun']:
-            self.log.info("would run %s", self.prettyprint_query(explain_query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(explain_query).encode('utf-8'))
             return None, None
         self.log.info("running:")
-        self.log.info(self.prettyprint_query(explain_query).encode('utf-8'))
+        self.log.info(qutils.prettyprint_query(explain_query).encode('utf-8'))
         try:
             cursor.execute(explain_query.encode('utf-8'))
             description = cursor.description
@@ -266,7 +222,7 @@ class QueryInfo():
         '''
         kill_query = 'KILL ' + thread_id
         if self.args['dryrun']:
-            self.log.info("would run %s", self.prettyprint_query(kill_query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(kill_query).encode('utf-8'))
             return
 
         try:
@@ -305,7 +261,7 @@ class QueryInfo():
         explain_result, description = self.explain(cursor, wiki, thread_id)
         self.kill(cursor, wiki, thread_id)
         self.print_and_log("*** QUERY:")
-        self.print_and_log(self.prettyprint_query(query))
+        self.print_and_log(qutils.prettyprint_query(query))
         self.print_and_log("*** SHOW EXPLAIN RESULTS:")
         self.print_and_log(self.prettyprint_rows(explain_result, description))
 
