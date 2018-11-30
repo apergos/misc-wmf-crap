@@ -67,26 +67,15 @@ yaml file, substitutes them into the query information read from the
 specified query file, and runs the resulting queries on the servers
 and wiki dbs. The results are written to stdout.
 
-Query file format:
-
-Content should consist of standard SQL queries. Each query may be on one or
-several lines. Lines that start with five or more hypens (-----) are taken
-as separators between queries. Variable names to be interpolated must be
-in all caps and beginning with a dollar sign. See samplequery.sql for an
-exmple.
-
-Settings file format:
-
-Content should be yaml, describing servers, wikis and variable names and values.
-Variable names must correspond to he variables in the query file, although
-they may be in any case. See samplesettings.yaml for an example.
-
+"""
+    usage_formats = qargs.get_common_arg_docs(['formats'])
+    usage_args = """
 Arguments:
 """
     usage_common = qargs.get_common_arg_docs(['yamlfile', 'queryfile', 'settings'])
     usage_flags = qargs.get_common_arg_docs(['flags'])
 
-    sys.stderr.write(usage_message + usage_common + usage_flags)
+    sys.stderr.write(usage_message + usage_formats + usage_args + usage_common + usage_flags)
     sys.exit(1)
 
 

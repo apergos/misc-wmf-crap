@@ -54,10 +54,10 @@ doc['yamlfile'] = """
                        Default: none
 """
 doc['queryfile'] = """
-    --queryfile  (-q)   File with queries, possibly containing variable names consisting
-                        of upper case strings starting with $, which will have values
-                        from the yaml files substituted in before the queries are run
-                        Default: none
+    --queryfile  (-q)  File with queries, possibly containing variable names consisting
+                       of upper case strings starting with $, which will have values
+                       from the yaml files substituted in before the queries are run
+                       Default: none
 """
 
 doc['flags'] = """
@@ -65,6 +65,25 @@ Flags:
     --dryrun    (-d)   Don't execute queries but show what would be done
     --verbose   (-v)   Display progress messages as queries are executed on the wikis
     --help      (-h)   Show this message
+"""
+
+doc['formats'] = """
+Query file format:
+
+Content should consist of standard SQL queries. Each query may be on one or
+several lines. Lines that start with five or more hypens (-----) are taken
+as separators between queries. Variable names to be interpolated must be
+in all caps and beginning with a dollar sign. See sample-queries.sql for an
+example of running queries and sample-explains.sql for an example of queries
+in a format to be SHOW EXPLAINed.
+
+Yaml file format:
+
+Content should be yaml, describing servers, wikis and variable names and values.
+Variable names must correspond to the variables in the query file, although
+they may be in any case. See sample-settings.yaml for an example. The file
+sample-explain-settings.yaml has the exact same format but fewer entries for
+(my) testing convenience.
 """
 
 
