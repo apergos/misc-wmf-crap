@@ -14,6 +14,7 @@ import MySQLdb
 import queries.config as qconfig
 import queries.utils as qutils
 import queries.queryinfo as qqueryinfo
+import queries.args as qargs
 
 
 class RunQueryInfo(qqueryinfo.QueryInfo):
@@ -102,14 +103,30 @@ Flags:
     sys.exit(1)
 
 
+def get_opt(opt, val, args):
+    '''
+    set option value in args dict if the option
+    is one of the below
+    '''
+    if opt in ['-y', '--yamlfile']:
+        args['yamlfile'] = val
+    elif opt in ['-q', '--queryfile']:
+        args['queryfile'] = val
+    elif opt in ['-c', '--configfile']:
+        args['configfile'] = val
+    else:
+        return False
+    return True
+
+
 def do_main():
     '''
     entry point
     '''
     args = {}
-    yamlfile = None
-    queryfile = None
-    configfile = None
+    args['yamlfile'] = None
+    args['queryfile'] = None
+    args['configfile'] = None
     args['dryrun'] = False
     args['verbose'] = False
 
@@ -121,29 +138,16 @@ def do_main():
         usage("Unknown option specified: " + str(err))
 
     for (opt, val) in options:
-        if opt in ['-y', '--yamlfile']:
-            yamlfile = val
-        elif opt in ['-q', '--queryfile']:
-            queryfile = val
-        elif opt in ['-c', '--configfile']:
-            configfile = val
-        elif opt in ['-h', '--help']:
-            usage("Help for this script")
-        elif opt in ['-d', '--dryrun']:
-            args['dryrun'] = True
-        elif opt in ['-v', '--verbose']:
-            args['verbose'] = True
+        if not get_opt(opt, val, args):
+            if not qargs.get_flag(opt, args, usage):
+                usage("Unknown option specified: <{opt}>".format(opt=opt))
 
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
-    if yamlfile is None:
-        usage("Mandatory argument 'yamlfile' not specified")
-    if queryfile is None:
-        usage("Mandatory argument 'queryfile' not specified")
-    if configfile is None:
-        usage("Mandatory argument 'configfile' not specified")
+    qargs.check_mandatory_args(args, ['yamlfile', 'queryfile', 'configfile'], usage)
 
+    configfile = args.get('configfile')
     conf = qconfig.config_setup(configfile)
     for setting in qconfig.SETTINGS:
         if setting not in args:
@@ -152,7 +156,7 @@ def do_main():
     # even if this is set in the config file for use by other scripts, we want it off
     args['mwhost'] = None
 
-    query = RunQueryInfo(yamlfile, queryfile, args)
+    query = RunQueryInfo(args)
     query.run(keep_cursor=True)
 
 

@@ -20,7 +20,7 @@ class QueryInfo():
     munge and run queries on db servers for specific wikis
     '''
 
-    def __init__(self, yamlfile, queryfile, args):
+    def __init__(self, args):
         self.args = args
         qlogger.logging_setup()
         if self.args['verbose'] or self.args['dryrun']:
@@ -29,8 +29,8 @@ class QueryInfo():
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
-        self.settings = qutils.get_settings_from_yaml(yamlfile)
-        self.queries = qutils.get_queries_from_file(queryfile)
+        self.settings = qutils.get_settings_from_yaml(self.args['yamlfile'])
+        self.queries = qutils.get_queries_from_file(self.args['queryfile'])
         # choose the first wiki we find in the yaml file, for db creds.
         # yes, this means all your wikis better have the same credentials
         wikidb = self.get_first_wiki()

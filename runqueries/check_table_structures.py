@@ -25,6 +25,7 @@ import MySQLdb
 import queries.config as qconfig
 import queries.logger as qlogger
 import queries.dbinfo as qdbinfo
+import queries.args as qargs
 
 
 class TableDiffs():
@@ -179,6 +180,10 @@ class TableDiffs():
         repl_table_structure = results[self.dbhost][wiki]
         if main_wiki:
             # we compare everything to table structure of one wiki
+            if main_master not in results or main_wiki not in results[main_master]:
+                print("No diffs available: no tables for main wiki {wiki} on {host}".format(
+                    wiki=main_wiki, host=main_master))
+                return
             master_table_structure = results[main_master][main_wiki]
         else:
             master_table_structure = results[main_master][wiki]
@@ -238,12 +243,12 @@ class TableDiffs():
             master_results = results[main_master]
         else:
             # example: a dry run will produce this
-            master_results = []
+            master_results = {}
         masters = self.dbinfo.get_masters()
         print("all wiki tables will be checked against {db}:{wiki}".format(
             db=main_master, wiki=main_wiki))
 
-        if self.verbose:
+        if self.verbose and master_results:
             self.display_table_structure(master_results[main_wiki])
 
         masters = self.dbinfo.get_masters()
@@ -556,37 +561,11 @@ Flags:
             return False
         return True
 
-    def get_flag(self, opt, args):
-        '''
-        set boolean flag in args dict if the flag is
-        one of the below
-        '''
-        if opt in ['-d', '--dryrun']:
-            args['dryrun'] = True
-        elif opt in ['-v', '--verbose']:
-            args['verbose'] = True
-        elif opt in ['-h', '--help']:
-            self.usage("Help for this script\n")
-        else:
-            return False
-        return True
-
-    def check_mandatory_args(self, args, argnames_to_check):
-        '''
-        make sure all mandatory args are present and have a value
-        '''
-        for argname in argnames_to_check:
-            if argname not in args:
-                self.usage("Mandatory argument --{arg} not ".format(arg=argname) +
-                           "specified on command line or in config file")
-            if not args[argname]:
-                self.usage("Mandatory argument --{arg} cannot be empty".format(arg=argname))
-
     def check_opts(self, args):
         '''
         check for missing opts and whine about them
         '''
-        self.check_mandatory_args(args, ['tables', 'settings', 'wikilist'])
+        qargs.check_mandatory_args(args, ['tables', 'settings', 'wikilist'], self.usage)
 
         count = 0
         if args['main_wiki'] is not None:
@@ -621,7 +600,7 @@ Flags:
 
         for (opt, val) in options:
             if not self.get_opt(opt, val, args):
-                if not self.get_flag(opt, args):
+                if not qargs.get_flag(opt, args, self.usage):
                     self.usage("Unknown option specified: <{opt}>".format(opt=opt))
 
         if remainder:

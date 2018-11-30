@@ -35,6 +35,7 @@ from subprocess import Popen, PIPE
 import queries.config as qconfig
 import queries.utils as qutils
 import queries.dbinfo as qdbinfo
+import queries.args as qargs
 
 
 # SSH = '/usr/bin/ssh'
@@ -45,8 +46,7 @@ class QueryRunner():
     '''
     run various db queries or collect info to run them
     '''
-    def __init__(self, wikidb, config):
-        self.wikidb = wikidb
+    def __init__(self, config):
         self.config = config
         self.multiversion = self.check_if_multiversion()
 
@@ -108,7 +108,7 @@ class QueryRunner():
         subcommand = [maint_script_path]
         pull_vars = ["wgCanonicalServer", "wgScriptPath"]
         subcommand.extend([
-            "--wiki={dbname}".format(dbname=self.wikidb),
+            "--wiki={dbname}".format(dbname=self.config['wikidb']),
             "--format=json", "--regex={vars}".format(vars="|".join(pull_vars))])
 
         command = qutils.build_command(
@@ -131,7 +131,7 @@ class QueryRunner():
             raise IOError(
                 "Failed to get values for wgCanonicalServer, " +
                 "wgScriptPath for {wiki}, got output {output}".format(
-                    wiki=self.wikidb, output=output))
+                    wiki=self.config['wikidb'], output=output))
 
         wgcanonserver = settings['wgCanonicalServer']
         wgscriptpath = settings['wgScriptPath']
@@ -150,8 +150,8 @@ class QueryRunner():
         mw_script_location, maint_script_path = qutils.get_maint_script_path(
             self.config, maintenance_script)
         subcommand = [maint_script_path]
-        subcommand.extend(["--wiki={dbname}".format(dbname=self.wikidb),
-                           "--wikidb={dbname}".format(dbname=self.wikidb),
+        subcommand.extend(["--wiki={dbname}".format(dbname=self.config['wikidb']),
+                           "--wikidb={dbname}".format(dbname=self.config['wikidb']),
                            "--group=vslow", "--", "--silent"])
         query = ("select rev_id from revision where " +
                  "rev_page={pageid} order by rev_id desc limit 1 offset {revcounthalf};".format(
@@ -172,7 +172,7 @@ class QueryRunner():
         revid = output.rstrip(b'\n')
         if not revid:
             raise IOError(
-                "Failed to get midpoint revid for {wiki}".format(wiki=self.wikidb))
+                "Failed to get midpoint revid for {wiki}".format(wiki=self.config['wikidb']))
         return revid
 
 
@@ -184,9 +184,8 @@ class RevCounter():
     '''
     REVCUTOFF = 10000
 
-    def __init__(self, config, wikidb):
+    def __init__(self, config):
         self.config = config
-        self.wikidb = wikidb
 
     def get_biggest_page_info(self):
         '''
@@ -205,7 +204,7 @@ class RevCounter():
         and ought to hear about it in any case
         '''
         remote_command = ["/bin/ls", "{dumpsdir}/{wiki}".format(
-            dumpsdir=self.config['dumpsdir'], wiki=self.wikidb)]
+            dumpsdir=self.config['dumpsdir'], wiki=self.config['wikidb'])]
         command = qutils.build_command(remote_command, ssh_host=self.config['dumpshost'])
         if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
             return b'99999999'
@@ -223,7 +222,8 @@ class RevCounter():
             entries = [entry for entry in entries if entry.isdigit() and len(entry) == 8]
             return entries[-2]
         except Exception:
-            raise "Errors encountered getting run dates for {wiki} dumps:".format(wiki=self.wikidb)
+            raise "Errors encountered getting run dates for {wiki} dumps:".format(
+                wiki=self.config['wikidb'])
 
     def get_pageid_revcount(self, rundate):
         '''
@@ -234,7 +234,7 @@ class RevCounter():
         remote_command = [
             "'/bin/zcat",
             "{dumpsdir}/{wiki}/{rundate}/{wiki}-{rundate}-stub-meta-history.xml.gz".format(
-                dumpsdir=self.config['dumpsdir'], wiki=self.wikidb,
+                dumpsdir=self.config['dumpsdir'], wiki=self.config['wikidb'],
                 rundate=rundate.decode('utf-8')),
             "|",
             "/usr/local/bin/revsperpage", "all", str(self.REVCUTOFF),
@@ -330,32 +330,32 @@ Flags:
     sys.exit(1)
 
 
-def get_section(config, wikidb):
+def get_section(config):
     '''
     dig the section that the wikidb lives on out of the db config settings
     return it; it might be 'DEFAULT' but this is ok
     '''
     dbinfo = qdbinfo.DbInfo(config)
-    _dbs, sections_by_db, _section_loads = dbinfo.get_dbhosts(wikidb)
-    if wikidb not in sections_by_db:
+    _dbs, sections_by_db, _section_loads = dbinfo.get_dbhosts(config['wikidb'])
+    if config['wikidb'] not in sections_by_db:
         return 'DEFAULT'
-    return sections_by_db[wikidb]
+    return sections_by_db[config['wikidb']]
 
 
-def run(config, wikidb):
+def run(config):
     '''
     given the config and the wiki database name,
     get all the values we need for a config stanza for
     the show explain script and write out a sample stanza
     '''
-    revcounter = RevCounter(config, wikidb)
+    revcounter = RevCounter(config)
     bigpage_id, revcount = revcounter.get_biggest_page_info()
-    qrunner = QueryRunner(wikidb, config)
+    qrunner = QueryRunner(config)
     namespace, title = qrunner.get_page_info(bigpage_id)
     revid = qrunner.get_midpoint_revid(bigpage_id, revcount)
     startpage, endpage = get_start_end_pageids(int(bigpage_id))
-    section = get_section(config, wikidb)
-    display(namespace, title, bigpage_id, revid, startpage, endpage, section, wikidb)
+    section = get_section(config)
+    display(namespace, title, bigpage_id, revid, startpage, endpage, section, config['wikidb'])
 
 
 def display_command_info(command, dryrun, verbose):
@@ -375,13 +375,31 @@ def display_command_info(command, dryrun, verbose):
     return True
 
 
+def get_opt(opt, val, args):
+    '''
+    set option value in args dict if the option
+    is one of the below
+    '''
+    if opt in ['-y', '--yamlfile']:
+        args['yamlfile'] = val
+    elif opt in ['-q', '--queryfile']:
+        args['queryfile'] = val
+    elif opt in ['-w', '--wikidb']:
+        args['wikidb'] = val
+    elif opt in ['-s', '--settings']:
+        args['configfile'] = val
+    else:
+        return False
+    return True
+
+
 def do_main():
     '''
     entry point
     '''
     args = {}
-    configfile = "genrqsettings.conf"
-    wikidb = None
+    args['configfile'] = "genrqsettings.conf"
+    args['wikidb'] = None
     args['dryrun'] = False
     args['verbose'] = False
 
@@ -393,29 +411,22 @@ def do_main():
         usage("Unknown option specified: " + str(err))
 
     for (opt, val) in options:
-        if opt in ['-s', '--settings']:
-            configfile = val
-        elif opt in ['-w', '--wikidb']:
-            wikidb = val
-        elif opt in ['-h', '--help']:
-            usage("Help for this script")
-        elif opt in ['-d', '--dryrun']:
-            args['dryrun'] = True
-        elif opt in ['-v', '--verbose']:
-            args['verbose'] = True
+        if not get_opt(opt, val, args):
+            if not qargs.get_flag(opt, args, usage):
+                usage("Unknown option specified: <{opt}>".format(opt=opt))
 
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
-    if wikidb is None:
-        usage("Mandatory argument 'wikidb' not specified")
+    qargs.check_mandatory_args(args, ['wikidb', 'configfile'], usage)
 
+    configfile = args.get('configfile')
     conf = qconfig.config_setup(configfile)
     for setting in qconfig.SETTINGS:
         if setting not in args:
             args[setting] = conf[setting]
 
-    run(args, wikidb)
+    run(args)
 
 
 if __name__ == '__main__':
