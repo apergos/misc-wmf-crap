@@ -376,7 +376,7 @@ Arguments:
     --configfile (-c)   python-style config file with settings for the location of the
                         MW repo, the path to the multiversion directory if any,
                         and the path to the php binary. For more information see
-                        queryrunner-sample.conf
+                        sample.conf
                         default: none
 Flags:
     --dryrun  (-d)    Don't execute any queries but show what would be done
