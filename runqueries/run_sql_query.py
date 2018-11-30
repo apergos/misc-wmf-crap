@@ -9,75 +9,29 @@ the output to stdout
 
 
 import getopt
-import re
 import sys
-import warnings
 import MySQLdb
-from prettytable import PrettyTable
 import queries.config as qconfig
-import queries.dbinfo as qdbinfo
 import queries.utils as qutils
+import queries.queryinfo as qqueryinfo
 
 
-class QueryInfo():
+class RunQueryInfo(qqueryinfo.QueryInfo):
     '''
     munge and run queries on db servers for specific wikis
     '''
-    def __init__(self, yamlfile, queryfile, args):
-        self.args = args
-        self.settings = qutils.get_settings_from_yaml(yamlfile)
-        self.queries = qutils.get_queries_from_file(queryfile)
-        # choose the first wiki we find in the yaml file, for db creds.
-        # yes, this means all your wikis better have the same credentials
-        wikidb = self.get_first_wiki()
-        self.dbinfo = qdbinfo.DbInfo(args)
-        self.dbcreds = self.dbinfo.get_dbcreds(wikidb)
-        warnings.filterwarnings("ignore", category=MySQLdb.Warning)
-
-    def get_first_wiki(self):
-        '''
-        find and return the first wiki db name in the settings
-        '''
-        sections = list(self.settings['servers'].keys())
-        return list(self.settings['servers'][sections[0]]['wikis'].keys())[0]
-
-    def fillin_query_template(self, wiki_settings):
-        '''
-        fill in and return the query template with the
-        specified settings
-        '''
-        querytext = self.queries
-        # to handle setting names where one name is a left substring
-        # of another ($NS and $NS_NAME  for example), sort them by length
-        # and do longest substitutions first
-        sorted_settings = sorted(wiki_settings, key=len)
-        for setting in sorted_settings:
-            name = '$' + setting.upper()
-            querytext = querytext.replace(name, wiki_settings[setting])
-        querytexts = re.split(r'^-----+$', querytext, flags=re.MULTILINE)
-        return querytexts
-
-    def run_on_wiki(self, cursor, wiki, wiki_settings):
+    def run_on_wiki(self, cursor, host, wiki, wiki_settings):
         '''
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
         '''
         print("wiki:", wiki)
         queries = self.fillin_query_template(wiki_settings)
-        usequery = 'USE ' + wiki + ';'
+        self.do_use_wiki(cursor, wiki)
         if self.args['dryrun']:
-            print("would run", qutils.prettyprint_query(usequery))
             for query in queries:
                 print("would run", qutils.prettyprint_query(query))
             return
-        if self.args['verbose']:
-            print("running", usequery)
-        try:
-            cursor.execute(usequery)
-            result = cursor.fetchall()
-        except MySQLdb.Error as ex:
-            raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
-                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
         for query in queries:
             if self.args['verbose']:
                 print("running:")
@@ -86,42 +40,12 @@ class QueryInfo():
                 cursor.execute(query.encode('utf-8'))
                 result = cursor.fetchall()
             except MySQLdb.Error as ex:
-                raise MySQLdb.Error("exception running query on wiki "
-                                    "{wiki} ({errno}:{message})".format(
-                                        wiki=wiki, errno=ex.args[0], message=ex.args[1]))
+                raise MySQLdb.Error(
+                    "exception running query on host "
+                    "{host}, wiki {wiki} ({errno}:{message})".format(
+                        host=host, wiki=wiki, errno=ex.args[0], message=ex.args[1]))
             print(qutils.prettyprint_query(query))
-            headers = [desc[0] for desc in cursor.description]
-            table = PrettyTable(headers)
-            for header in headers:
-                table.align[header] = "l"
-            for entry in result:
-                table.add_row(list(entry))
-            print(table)
-
-    def run_on_server(self, host, wikis_info):
-        '''
-        run queries on all wikis for specified server, after
-        filling in the query template
-        '''
-        print("host:", host)
-        if self.args['dryrun']:
-            cursor = None
-        else:
-            cursor, _unused = self.dbinfo.get_cursor(host)
-        for wiki in wikis_info:
-            self.run_on_wiki(cursor, wiki, wikis_info[wiki])
-        if not self.args['dryrun']:
-            cursor.close()
-
-    def run(self):
-        '''
-        run all queries on all wikis for each host, with variables in
-        the query template filled in appropriately
-        '''
-        for section in self.settings['servers']:
-            print("info for section", section)
-            for host in self.settings['servers'][section]['hosts']:
-                self.run_on_server(host, self.settings['servers'][section]['wikis'])
+            print(qutils.prettyprint_rows(result, cursor.description))
 
 
 def usage(message=None):
@@ -228,8 +152,8 @@ def do_main():
     # even if this is set in the config file for use by other scripts, we want it off
     args['mwhost'] = None
 
-    query = QueryInfo(yamlfile, queryfile, args)
-    query.run()
+    query = RunQueryInfo(yamlfile, queryfile, args)
+    query.run(keep_cursor=True)
 
 
 if __name__ == '__main__':

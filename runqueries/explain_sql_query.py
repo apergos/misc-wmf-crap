@@ -23,18 +23,12 @@ and db cursor.
 
 
 import getopt
-import logging
-import logging.config
-import re
 import sys
 import threading
-import warnings
 import MySQLdb
-from prettytable import PrettyTable
 import queries.config as qconfig
-import queries.logger as qlogger
-import queries.dbinfo as qdbinfo
 import queries.utils as qutils
+import queries.queryinfo as qqueryinfo
 
 
 def async_query(cursor, wiki, query, log):
@@ -65,69 +59,11 @@ def async_query(cursor, wiki, query, log):
                                      wiki=wiki, errno=ex.args[0], message=ex.args[1])))
 
 
-class QueryInfo():
+class ExplainQueryInfo(qqueryinfo.QueryInfo):
     '''
-    munge and run queries on db servers for specific wikis
+    munge and run queries on db servers for specific wikis, doing a show
+    explain on each one as it runs, then shooting it
     '''
-
-    def __init__(self, yamlfile, queryfile, args):
-        self.args = args
-        qlogger.logging_setup()
-        if self.args['verbose'] or self.args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
-        warnings.filterwarnings("ignore", category=MySQLdb.Warning)
-        self.settings = qutils.get_settings_from_yaml(yamlfile)
-        self.queries = qutils.get_queries_from_file(queryfile)
-        # choose the first wiki we find in the yaml file, for db creds.
-        # yes, this means all your wikis better have the same credentials
-        wikidb = self.get_first_wiki()
-        self.dbinfo = qdbinfo.DbInfo(args)
-        self.dbcreds = self.dbinfo.get_dbcreds(wikidb)
-
-    def get_first_wiki(self):
-        '''
-        find and return the first wiki db name in the settings
-        '''
-        sections = list(self.settings['servers'].keys())
-        return list(self.settings['servers'][sections[0]]['wikis'].keys())[0]
-
-    def fillin_query_template(self, wiki_settings):
-        '''
-        fill in and return the query template with the
-        specified settings
-        '''
-        querytext = self.queries
-        # to handle setting names where one name is a left substring
-        # of another ($NS and $NS_NAME  for example), sort them by length
-        # and do longest substitutions first
-        sorted_settings = sorted(wiki_settings, key=len)
-        for setting in sorted_settings:
-            name = '$' + setting.upper()
-            querytext = querytext.replace(name, wiki_settings[setting])
-        querytexts = re.split(r'^-----+$', querytext, flags=re.MULTILINE)
-        return querytexts
-
-    def do_use_wiki(self, cursor, wiki):
-        '''
-        does a simple 'USE wikidbname'. That is all.
-        '''
-        usequery = 'USE ' + wiki + ';'
-        if self.args['dryrun']:
-            self.log.info("would run %s", qutils.prettyprint_query(usequery))
-            return
-        self.log.info("running %s", usequery)
-        try:
-            cursor.execute(usequery.encode('utf-8'))
-            result = cursor.fetchall()
-        except MySQLdb.Error as ex:
-            if result is not None:
-                self.log.error("returned from fetchall: %s", result)
-            raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
-                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
-
     def start_query(self, cursor, wiki, query):
         '''
         runs the passed query via the specified cursor, in a separate
@@ -166,28 +102,11 @@ class QueryInfo():
                              host, ex.args[0], ex.args[1])
             return None
         self.log.info("show processlist:")
-        self.log.info(self.prettyprint_rows(result, cursor.description))
+        self.log.info(qutils.prettyprint_rows(result, cursor.description))
         for row in result:
             if row[0] == thread_id:
                 return True
         return False
-
-    @staticmethod
-    def prettyprint_rows(results, description):
-        '''
-        print output from sql query nicely formatted as a table
-        the way mysql cli does
-        '''
-        if results is None:
-            return "no results available"
-
-        headers = [desc[0] for desc in description]
-        table = PrettyTable(headers)
-        for header in headers:
-            table.align[header] = "l"
-        for entry in results:
-            table.add_row(list(entry))
-        return table
 
     def explain(self, cursor, wiki, thread_id):
         '''
@@ -236,17 +155,6 @@ class QueryInfo():
                                      "{wiki} ({errno}:{message})".format(
                                          wiki=wiki, errno=ex.args[0], message=ex.args[1])))
 
-    def print_and_log(self, *args):
-        '''
-        print specified args (goes to stdout), and also log them
-        at info level (goes to log file)
-
-        use this for output you expect to see on any run of the
-        script regardless of verbosity
-        '''
-        print(*args)
-        self.log.info(*args)
-
     def explain_and_kill(self, host, wiki, thread_id, query):
         '''
         given the thread id of the thread running
@@ -260,10 +168,10 @@ class QueryInfo():
 
         explain_result, description = self.explain(cursor, wiki, thread_id)
         self.kill(cursor, wiki, thread_id)
-        self.print_and_log("*** QUERY:")
-        self.print_and_log(qutils.prettyprint_query(query))
-        self.print_and_log("*** SHOW EXPLAIN RESULTS:")
-        self.print_and_log(self.prettyprint_rows(explain_result, description))
+        qutils.print_and_log(self.log, "*** QUERY:")
+        qutils.print_and_log(self.log, qutils.prettyprint_query(query))
+        qutils.print_and_log(self.log, "*** SHOW EXPLAIN RESULTS:")
+        qutils.print_and_log(self.log, qutils.prettyprint_rows(explain_result, description))
 
         if cursor is not None:
             cursor.close()
@@ -278,12 +186,12 @@ class QueryInfo():
             self.log.error("echo 'kill {thread_id}' | mysql --skip-ssl")
             raise MySQLdb.Error("query thread {id} still running".format(id=thread_id))
 
-    def run_on_wiki(self, host, wiki, wiki_settings):
+    def run_on_wiki(self, cursor, host, wiki, wiki_settings):
         '''
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
         '''
-        self.print_and_log("*** WIKI: {wiki}".format(wiki=wiki))
+        qutils.print_and_log(self.log, "*** WIKI: {wiki}".format(wiki=wiki))
         queries = self.fillin_query_template(wiki_settings)
         for query in queries:
             self.log.info("*** Starting new query check")
@@ -302,25 +210,6 @@ class QueryInfo():
                 cursor.close()
             if not self.args['dryrun']:
                 thr.join()
-
-    def run_on_server(self, host, wikis_info):
-        '''
-        run queries on all wikis for specified server, after
-        filling in the query template
-        '''
-        self.print_and_log("*** HOST: {host}".format(host=host))
-        for wiki in wikis_info:
-            self.run_on_wiki(host, wiki, wikis_info[wiki])
-
-    def run(self):
-        '''
-        run all queries on all wikis for each host, with variables in
-        the query template filled in appropriately
-        '''
-        for section in self.settings['servers']:
-            self.print_and_log("*** SECTION: {section}".format(section=section))
-            for host in self.settings['servers'][section]['hosts']:
-                self.run_on_server(host, self.settings['servers'][section]['wikis'])
 
 
 def usage(message=None):
@@ -444,8 +333,8 @@ def do_main():
     # even if this is set in the config file for use by other scripts, we want it off
     args['mwhost'] = None
 
-    query = QueryInfo(yamlfile, queryfile, args)
-    query.run()
+    query = ExplainQueryInfo(yamlfile, queryfile, args)
+    query.run(keep_cursor=False)
 
 
 if __name__ == '__main__':

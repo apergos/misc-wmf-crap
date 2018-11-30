@@ -6,6 +6,7 @@ misc utils
 
 import os
 import yaml
+from prettytable import PrettyTable
 
 
 MWSCRIPT = 'MWScript.php'
@@ -139,3 +140,32 @@ def prettyprint_query(querystring):
     lines = [pad_line(line) for line in lines]
     result = ''.join(lines)
     return result
+
+
+def prettyprint_rows(results, description):
+    '''
+    print output from sql query nicely formatted as a table
+    the way mysql cli does
+    '''
+    if results is None:
+        return "no results available"
+
+    headers = [desc[0] for desc in description]
+    table = PrettyTable(headers)
+    for header in headers:
+        table.align[header] = "l"
+    for entry in results:
+        table.add_row(list(entry))
+    return table
+
+
+def print_and_log(log, *args):
+    '''
+    print specified args (goes to stdout), and also log them
+    at info level (goes to log file)
+
+    use this for output you expect to see on any run of the
+    script regardless of verbosity
+    '''
+    print(*args)
+    log.info(*args)
