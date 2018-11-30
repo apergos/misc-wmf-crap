@@ -59,7 +59,7 @@ def usage(message=None):
         sys.stderr.write(message)
         sys.stderr.write('\n')
     usage_message = """
-Usage: python3 run_sql_query.py --yamlfile <path> --queryfile <path> --configfile <path>
+Usage: python3 run_sql_query.py --yamlfile <path> --queryfile <path> --settings <path>
     [--dryrun] [--verbose] [--help]
 
 This script reads server, wiki and variable names from the specified
@@ -82,24 +82,11 @@ Variable names must correspond to he variables in the query file, although
 they may be in any case. See samplesettings.yaml for an example.
 
 Arguments:
-    --yamlfile   (-y)   File with yaml-formatted list of db servers, wiki db names
-                        and variable names for substitution into the query template
-                        default: none
-    --queryfile  (-q)   File with queries, possibly containing variable names consisting
-                        of upper case strings starting with $, which will have values
-                        from the yaml files substituted in before the queries are run
-                        default: none
-    --configfile (-c)   python-style config file with settings for the location of the
-                        MW repo, the path to the multiversion directory if any,
-                        and the path to the php binary. For more information see
-                        sample.conf
-                        default: none
-Flags:
-    --dryrun  (-d)    Don't execute queries but show what would be done
-    --verbose (-v)    Display progress messages as queries are executed on the wikis
-    --help    (-h)    show this message
 """
-    sys.stderr.write(usage_message)
+    usage_common = qargs.get_common_arg_docs(['yamlfile', 'queryfile', 'settings'])
+    usage_flags = qargs.get_common_arg_docs(['flags'])
+
+    sys.stderr.write(usage_message + usage_common + usage_flags)
     sys.exit(1)
 
 
@@ -112,7 +99,7 @@ def get_opt(opt, val, args):
         args['yamlfile'] = val
     elif opt in ['-q', '--queryfile']:
         args['queryfile'] = val
-    elif opt in ['-c', '--configfile']:
+    elif opt in ['-s', '--settings']:
         args['configfile'] = val
     else:
         return False
@@ -132,7 +119,7 @@ def do_main():
 
     try:
         (options, remainder) = getopt.gnu_getopt(
-            sys.argv[1:], 'y:q:c:dvh', ['yamlfile=', 'queryfile=', 'configfile=',
+            sys.argv[1:], 'y:q:s:dvh', ['yamlfile=', 'queryfile=', 'settings=',
                                         'dryrun', 'verbose', 'help'])
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))

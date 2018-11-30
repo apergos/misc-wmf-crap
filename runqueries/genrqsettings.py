@@ -314,19 +314,13 @@ that runs show explain for given queries on certain dbs.
 See the sample-genrq.conf for an example config file.
 
 Arguments:
-    --settings   (-s)   File with settings for host to run revsperpage, path
-                        to php file with db section info
-                        default: genrqsettings.conf
     --wikidb     (-w)   Name of wiki database (e.g. enwiki) for which to generate
                         show explain query config data
                         default: none
-
-Flags:
-    --dryrun  (-d)    Don't execute queries but show what would be done
-    --verbose (-v)    Display progress messages as queries are executed on the wikis
-    --help    (-h)    show this message
 """
-    sys.stderr.write(usage_message)
+    usage_common = qargs.get_common_arg_docs(['settings'])
+    usage_flags = qargs.get_common_arg_docs(['flags'])
+    sys.stderr.write(usage_message + usage_common + usage_flags)
     sys.exit(1)
 
 
@@ -398,7 +392,7 @@ def do_main():
     entry point
     '''
     args = {}
-    args['configfile'] = "genrqsettings.conf"
+    args['configfile'] = None
     args['wikidb'] = None
     args['dryrun'] = False
     args['verbose'] = False

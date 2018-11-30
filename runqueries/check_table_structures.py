@@ -499,7 +499,7 @@ replicas agains the master in each case.
 It also writes out the version of mysql/mariadb for each db server.
 
 Options:
-    --dbhosts   (-h)   List of db hostnames, comma-separated
+    --dbhosts   (-H)   List of db hostnames, comma-separated
                        If such a list is provided, it will be presumed that all wikidbs
                        specified can be found on all the db hostnames given
                        Default: none, get list from db server config file
@@ -515,24 +515,17 @@ Options:
                        against the master for the same wiki
                        If this arg is set then master must also be set
                        Default: none
-    --settings  (-s)   File with global settings which may include:
-                       multiversion, mwrepo, wikifile, wikilist, php, domain
-                       Default: none
     --tables    (-t)   List of table names, comma-separated
                        Default: none
-    --php       (-p)   path to php command, used for grabbing db creds and possibly
-                       list of db servers from php files
-                       Default: /usr/bin/php
     --wikifile  (-f)   File containing a list of wiki db names, one per line
                        Default: all.dblist in current directory
     --wikilist  (-l)   List of wiki db names, comma-separated
                        Default: none, read list from file
-
-Flags:
-    --dryrun    (-d)   Don't execute queries but show what would be done
-    --help      (-h)   show this message
 """
-        sys.stderr.write(usage_message)
+        usage_common = qargs.get_common_arg_docs(['settings', 'php'])
+        usage_flags = qargs.get_common_arg_docs(['flags'])
+
+        sys.stderr.write(usage_message + usage_common + usage_flags)
         sys.exit(1)
 
     @staticmethod
@@ -541,7 +534,7 @@ Flags:
         set option value in args dict if the option
         is one of the below
         '''
-        if opt in ['-h', '--dbhosts']:
+        if opt in ['-H', '--dbhosts']:
             args['dbhosts'] = val.split(',')
         elif opt in ['-f', '--wikifile']:
             args['wikifile'] = val
@@ -590,7 +583,7 @@ Flags:
 
         try:
             (options, remainder) = getopt.gnu_getopt(
-                sys.argv[1:], 'h:f:l:m:p:s:t:vh',
+                sys.argv[1:], 'H:f:l:m:p:s:t:vh',
                 ['dbhosts=', 'master=', 'main_wiki=',
                  'php=', 'settings=', 'tables=',
                  'wikifile=', 'wikilist=',
