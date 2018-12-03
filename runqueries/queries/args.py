@@ -36,17 +36,11 @@ doc = {}
 
 doc['settings'] = """
     --settings  (-s)   File with global settings which may include:
-                       location of the MediaWiki installation, path to
-                       the multiversion directory if any, the path to
-                       the php binary, and so on. For more information,
-                       see the file sample.conf
+                       location of the MediaWiki installation, path to the
+                       multiversion directory if any, the name of the user as which
+                       mw scripts must be run, and so on. For more information, see
+                       the file sample.conf
                        Default: none
-"""
-doc['php'] = """
-    --php       (-p)   Path to php command, used for grabbing db creds
-                       and possibly a list of db servers via MediaWiki
-                       maintenance scripts
-                       Default: /usr/bin/php
 """
 doc['yamlfile'] = """
     --yamlfile  (-y)   File with yaml-formatted list of db servers, wiki db names

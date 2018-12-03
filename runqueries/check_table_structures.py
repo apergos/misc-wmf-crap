@@ -467,7 +467,6 @@ Usage: python3 check_table_structures.py  --tables name[,name...]
     [--wikifile <path>|--wikilist name[,name...]]
     [--dbhosts host[,host...]]
     [--master <host>] [--main_wiki <name>]
-    [--php <path>]
     [--dryrun] [--verbose] [--help]
 
 This script checks the table structure for the wikis and tables specified
@@ -500,7 +499,7 @@ Options:
     --wikilist  (-l)   List of wiki db names, comma-separated
                        Default: none, read list from file
 """
-        usage_common = qargs.get_common_arg_docs(['settings', 'php'])
+        usage_common = qargs.get_common_arg_docs(['settings'])
         usage_flags = qargs.get_common_arg_docs(['flags'])
 
         sys.stderr.write(usage_message + usage_common + usage_flags)
@@ -522,8 +521,6 @@ Options:
             args['main_master'] = val
         elif opt in ['-W', '--main_wiki']:
             args['main_wiki'] = val
-        elif opt in ['-p', '--php']:
-            args['php'] = val
         elif opt in ['-s', '--settings']:
             args['settings'] = val
         elif opt in ['-t', '--tables']:
@@ -557,9 +554,9 @@ Options:
 
         try:
             (options, remainder) = getopt.gnu_getopt(
-                sys.argv[1:], 'H:f:l:m:p:s:t:vh',
+                sys.argv[1:], 'H:f:l:m:s:t:vh',
                 ['dbhosts=', 'master=', 'main_wiki=',
-                 'php=', 'settings=', 'tables=',
+                 'settings=', 'tables=',
                  'wikifile=', 'wikilist=',
                  'dryrun', 'verbose', 'help'])
         except getopt.GetoptError as err:
