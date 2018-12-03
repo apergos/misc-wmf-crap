@@ -361,25 +361,35 @@ class TableInfo():
             tables[table] = self.get_show_create_table(wiki, table, dbcursor)
         return tables
 
+    def run_table_query(self, wiki, dbcursor, query):
+        '''
+        run some query for a table, returning None on error or dryrun
+        or the query results otherwise
+        '''
+        if self.args['dryrun']:
+            print("for wiki", wiki, "would run", query)
+            return None
+        self.log.info("for wiki %s running %s", wiki, query)
+        try:
+            dbcursor.execute(query)
+            result = dbcursor.fetchall()
+        except MySQLdb.Error as ex:
+            # treat all errors as nonexistence so that
+            # the caller can continue processing info
+            # on other tables or from other hosts
+            self.log.warning("exception running query %s: %s %s",
+                             query, ex.args[0], ex.args[1])
+            return None
+        return result
+
     def table_exists(self, wiki, table, dbcursor):
         '''
         check if table exists in wikidb, return True if
         so, False otherwise
         '''
         querystr = "SHOW TABLES LIKE '{table}'".format(table=table)
-        if self.args['dryrun']:
-            print("for wiki", wiki, "would run", querystr)
-            return []
-        self.log.info("for wiki %s running %s", wiki, querystr)
-        try:
-            dbcursor.execute(querystr)
-            result = dbcursor.fetchall()
-        except MySQLdb.Error as ex:
-            # treat all errors as nonexistence so that
-            # the caller can continue processing info
-            # on other tables or from other hosts
-            self.log.warning("exception checking table existence %s: %s %s",
-                             table, ex.args[0], ex.args[1])
+        result = self.run_table_query(wiki, dbcursor, querystr)
+        if not result:
             return None
         return bool(result)
 
@@ -392,24 +402,11 @@ class TableInfo():
         if not self.table_exists(wiki, table, dbcursor):
             return []
         querystr = "SHOW CREATE TABLE {table};".format(table=table)
-        if self.args['dryrun']:
-            print("for wiki", wiki, "would run", querystr)
-            return []
-        self.log.info("for wiki %s running %s", wiki, querystr)
-
         # be nice to the servers
         time.sleep(0.05)
-
-        try:
-            dbcursor.execute(querystr)
-            results = dbcursor.fetchall()
-        except MySQLdb.Error as ex:
-            # return something empty so that the caller can continue
-            # processing info on other tables or from other hosts
-            self.log.warning("exception checking table structure %s: %s %s",
-                             table, ex.args[0], ex.args[1])
-            return {}
-
+        results = self.run_table_query(wiki, dbcursor, querystr)
+        if not results:
+            return []
         return self.format_create_table_info(results)
 
     def show_tables_for_wikis(self, wikilist, main_master, main_wiki):
