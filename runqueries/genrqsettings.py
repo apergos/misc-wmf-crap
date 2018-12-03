@@ -303,10 +303,10 @@ def usage(message=None):
         sys.stderr.write(message)
         sys.stderr.write('\n')
     usage_message = """
-Usage: python3 genrqsettings.py --configfile <path> --wikidb <name>
+Usage: python3 genrqsettings.py --settings <path> --wikidb <name>
     [--dryrun] [--verbose] [--help]
 
-This script reads a configfile path and the name of a wiki database,
+This script reads a settings file path and the name of a wiki database,
 and then by means of several somersaults and a few rabbits out of grody
 hats generates a config stanza that can be used for the script
 that runs show explain for given queries on certain dbs.
@@ -381,7 +381,7 @@ def get_opt(opt, val, args):
     elif opt in ['-w', '--wikidb']:
         args['wikidb'] = val
     elif opt in ['-s', '--settings']:
-        args['configfile'] = val
+        args['settings'] = val
     else:
         return False
     return True
@@ -391,12 +391,7 @@ def do_main():
     '''
     entry point
     '''
-    args = {}
-    args['configfile'] = None
-    args['wikidb'] = None
-    args['dryrun'] = False
-    args['verbose'] = False
-
+    args = qargs.get_arg_defaults(['settings', 'wikidb'], ['dryrun', 'verbose'])
     try:
         (options, remainder) = getopt.gnu_getopt(
             sys.argv[1:], 's:w:dvh', ['settings=', 'wikidb=',
@@ -412,9 +407,9 @@ def do_main():
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
-    qargs.check_mandatory_args(args, ['wikidb', 'configfile'], usage)
+    qargs.check_mandatory_args(args, ['wikidb', 'settings'], usage)
 
-    configfile = args.get('configfile')
+    configfile = args.get('settings')
     conf = qconfig.config_setup(configfile)
     for setting in qconfig.SETTINGS:
         if setting not in args:

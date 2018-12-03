@@ -89,7 +89,7 @@ def get_opt(opt, val, args):
     elif opt in ['-q', '--queryfile']:
         args['queryfile'] = val
     elif opt in ['-s', '--settings']:
-        args['configfile'] = val
+        args['settings'] = val
     else:
         return False
     return True
@@ -99,13 +99,8 @@ def do_main():
     '''
     entry point
     '''
-    args = {}
-    args['yamlfile'] = None
-    args['queryfile'] = None
-    args['configfile'] = None
-    args['dryrun'] = False
-    args['verbose'] = False
-
+    args = qargs.get_arg_defaults(['yamlfile', 'queryfile', 'settings'],
+                                  ['dryrun', 'verbose'])
     try:
         (options, remainder) = getopt.gnu_getopt(
             sys.argv[1:], 'y:q:s:dvh', ['yamlfile=', 'queryfile=', 'settings=',
@@ -121,9 +116,9 @@ def do_main():
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
-    qargs.check_mandatory_args(args, ['yamlfile', 'queryfile', 'configfile'], usage)
+    qargs.check_mandatory_args(args, ['yamlfile', 'queryfile', 'settings'], usage)
 
-    configfile = args.get('configfile')
+    configfile = args.get('settings')
     conf = qconfig.config_setup(configfile)
     for setting in qconfig.SETTINGS:
         if setting not in args:

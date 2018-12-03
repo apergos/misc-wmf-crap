@@ -574,12 +574,8 @@ Options:
         back to config file values or to config defaults when these
         args are not passed in
         '''
-        args = {}
-        args['dbhosts'] = None
-        args['main_master'] = None
-        args['main_wiki'] = None
-        args['dryrun'] = False
-        args['verbose'] = False
+        args = qargs.get_arg_defaults(['dbhosts', 'main_master', 'main_wiki'],
+                                      ['dryrun', 'verbose'])
 
         try:
             (options, remainder) = getopt.gnu_getopt(

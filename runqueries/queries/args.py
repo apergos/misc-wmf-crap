@@ -88,7 +88,21 @@ sample-explain-settings.yaml has the exact same format but fewer entries for
 
 
 def get_common_arg_docs(names):
-    # remove first and last lines, presumed to be blank (if not, you
-    # know who to blame)
+    """
+    remove first and last lines, presumed to be blank (if not, you
+    know who to blame)
+    """
     docs = "\n".join([doc[name][1:-1] for name in names]) + '\n'
     return docs
+
+
+def get_arg_defaults(opts, flags):
+    '''
+    return a dict with None for the opts list and False for the flag list
+    '''
+    args = {}
+    for opt in opts:
+        args[opt] = None
+    for flag in flags:
+        args[flag] = False
+    return args
