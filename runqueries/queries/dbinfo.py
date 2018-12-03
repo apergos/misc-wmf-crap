@@ -231,3 +231,27 @@ class DbInfo():
             raise MySQLdb.Error("failed to connect to or get cursor from "
                                 "{host}:{port}, {errno}:{message}".format(
                                     host=host, port=port, errno=ex.args[0], message=ex.args[1]))
+
+    def do_use_wiki(self, cursor, wiki, lost_conn_ok=False):
+        '''
+        does a simple 'USE wikidbname'. That is all.
+        returns True on success, False for dryrun, None for lost conn,
+        raises exception on any other error
+        '''
+        usequery = 'USE ' + wiki + ';'
+        if self.args['dryrun']:
+            self.log.info("would run %s", qutils.prettyprint_query(usequery))
+            return False
+        self.log.info("running %s", usequery)
+        try:
+            cursor.execute(usequery.encode('utf-8'))
+            result = cursor.fetchall()
+        except MySQLdb.Error as ex:
+            if lost_conn_ok and ex.args[0] == 1049:
+                # this host no longer serves this wikidb, but caller wishes to handle it
+                return None
+            if result is not None:
+                self.log.error("returned from fetchall: %s", result)
+            raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
+                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
+        return True

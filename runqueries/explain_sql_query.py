@@ -200,7 +200,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
                 cursor, thread_id = None, None
             else:
                 cursor, thread_id = self.dbinfo.get_cursor(host)
-            self.do_use_wiki(cursor, wiki)
+            self.dbinfo.do_use_wiki(cursor, wiki)
             thr = self.start_query(cursor, wiki, query)
             if self.args['dryrun']:
                 thread_id = '<none (dryrun)>'

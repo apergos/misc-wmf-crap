@@ -28,7 +28,7 @@ class RunQueryInfo(qqueryinfo.QueryInfo):
         '''
         print("wiki:", wiki)
         queries = self.fillin_query_template(wiki_settings)
-        self.do_use_wiki(cursor, wiki)
+        self.dbinfo.do_use_wiki(cursor, wiki)
         if self.args['dryrun']:
             for query in queries:
                 print("would run", qutils.prettyprint_query(query))

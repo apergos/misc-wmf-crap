@@ -60,24 +60,6 @@ class QueryInfo():
         querytexts = re.split(r'^-----+$', querytext, flags=re.MULTILINE)
         return querytexts
 
-    def do_use_wiki(self, cursor, wiki):
-        '''
-        does a simple 'USE wikidbname'. That is all.
-        '''
-        usequery = 'USE ' + wiki + ';'
-        if self.args['dryrun']:
-            self.log.info("would run %s", qutils.prettyprint_query(usequery))
-            return
-        self.log.info("running %s", usequery)
-        try:
-            cursor.execute(usequery.encode('utf-8'))
-            result = cursor.fetchall()
-        except MySQLdb.Error as ex:
-            if result is not None:
-                self.log.error("returned from fetchall: %s", result)
-            raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
-                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
-
     # Implement in subclass!
     def run_on_wiki(self, cursor, host, wiki, wiki_settings):
         '''

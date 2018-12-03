@@ -292,17 +292,16 @@ class TableInfo():
     '''
     methods for retrieving db table structure info
     '''
-    def __init__(self, dbinfo, tables, dryrun, verbose):
+    def __init__(self, args, dbinfo):
+        self.args = args
         self.dbinfo = dbinfo
-        self.tables = tables
-        self.dryrun = dryrun
         qlogger.logging_setup()
-        if verbose or dryrun:
+        if self.args['verbose'] or self.args['dryrun']:
             log_type = 'verbose'
         else:
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
-        self.tablediffs = TableDiffs(self.dbinfo, verbose)
+        self.tablediffs = TableDiffs(self.dbinfo, self.args['verbose'])
 
     @staticmethod
     def format_create_table_info(sql_results):
@@ -337,7 +336,7 @@ class TableInfo():
         get the version of mysql. hey, it might differ, no?
         '''
         querystr = "SHOW VARIABLES LIKE 'version';"
-        if self.dryrun:
+        if self.args['dryrun']:
             print("on", dbhost, "would run", querystr)
             return
         self.log.info("on %s running %s", dbhost, querystr)
@@ -356,33 +355,12 @@ class TableInfo():
         collect and return output for show create table for:
         page, revision, text, comment (if there), actor (if there)
         '''
-        if self.set_db(wiki, dbcursor) is None:
+        if self.dbinfo.do_use_wiki(dbcursor, wiki, lost_conn_ok=True) is None:
             return []
         tables = {}
-        for table in self.tables:
+        for table in self.args['tables']:
             tables[table] = self.get_show_create_table(wiki, table, dbcursor)
         return tables
-
-    def set_db(self, wiki, dbcursor):
-        '''
-        have to set which wiki db we are using before we start asking
-        for any other info
-        '''
-        querystr = "USE {db};".format(db=wiki)
-        if self.dryrun:
-            print("for wiki", wiki, "would run", querystr)
-            return False
-        self.log.info("for wiki %s running %s", wiki, querystr)
-
-        try:
-            dbcursor.execute(querystr)
-            dbcursor.fetchall()
-        except MySQLdb.OperationalError as ex:
-            if ex.args[0] == 1049:
-                # this host no longer serves this wikidb
-                return None
-            raise
-        return True
 
     def table_exists(self, wiki, table, dbcursor):
         '''
@@ -390,7 +368,7 @@ class TableInfo():
         so, False otherwise
         '''
         querystr = "SHOW TABLES LIKE '{table}'".format(table=table)
-        if self.dryrun:
+        if self.args['dryrun']:
             print("for wiki", wiki, "would run", querystr)
             return []
         self.log.info("for wiki %s running %s", wiki, querystr)
@@ -415,7 +393,7 @@ class TableInfo():
         if not self.table_exists(wiki, table, dbcursor):
             return []
         querystr = "SHOW CREATE TABLE {table};".format(table=table)
-        if self.dryrun:
+        if self.args['dryrun']:
             print("for wiki", wiki, "would run", querystr)
             return []
         self.log.info("for wiki %s running %s", wiki, querystr)
@@ -450,7 +428,7 @@ class TableInfo():
 
             if dbhost not in results:
                 results[dbhost] = {}
-            if self.dryrun:
+            if self.args['dryrun']:
                 dbcursor = None
             else:
                 dbcursor, _unused = self.dbinfo.get_cursor(
@@ -462,7 +440,7 @@ class TableInfo():
             self.log.info("for dbhost %s checking wikis %s", dbhost, ','.join(wikis_todo))
             for wiki in wikis_todo:
                 results[dbhost][wiki] = self.check_tables(wiki, dbcursor)
-            if not self.dryrun:
+            if not self.args['dryrun']:
                 dbcursor.close()
         self.tablediffs.display_diffs(results, main_master, main_wiki)
 
@@ -632,7 +610,7 @@ def do_main():
     args['mwhost'] = None
 
     dbinfo = qdbinfo.DbInfo(args)
-    tableinfo = TableInfo(dbinfo, args['tables'], args['dryrun'], args['verbose'])
+    tableinfo = TableInfo(args, dbinfo)
     tableinfo.show_tables_for_wikis(args['wikilist'], args['main_master'], args['main_wiki'])
 
 
