@@ -50,16 +50,13 @@ States setState (char *line, States currentState) {
 
 int main(int argc,char **argv) {
   States state = None;
-  char *text;
+  char *text = NULL;
   char line[4097];
-  int revisions;
-  int good;
-  char *datestring = NULL;
-  int res=0;
+  int revisions = 0;
+  int good = 0;
   int all=0;
   int pageid = 0;
   int cutoff = 0;
-  long long cumul = 0L;
 
   if (argc < 1 || argc > 3) {
     usage(argv[0]);
@@ -70,7 +67,7 @@ int main(int argc,char **argv) {
       all=1;
     }
     else if (isdigit(argv[1][0])) {
-      cutoff = strtol(text, NULL, 10);
+      cutoff = strtol(argv[1], NULL, 10);
     }
     else {
       usage(argv[0]);

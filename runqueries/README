@@ -1,0 +1,37 @@
+Utilities for checking sql queries or sql table structures
+for MediaWiki databases.
+
+HOO BOY is there no guarantee of any kind. None whatsoever.
+If this eats all of your live AND backup dbs for breakfast,
+the only think you'll hear from us is: You Have Been Warned.
+
+These are needed so we can keep track of what different
+dumps-relates queries do on different database servers
+on different wikis. The queries typically are for some
+fields from the revision, page, and possibly text tables,
+for some range of pages and/or revisions.
+On different servers or wikis, the indices may be different,
+the table might have a few extra parameters, etc. So we have
+the following:
+
+check_table_structures.py
+   compare table structures for a set of wikis on various
+   dbs, or across a whole list of wikis, choosing one wiki
+   and server as the source of truth for what the listed
+   tables should look like
+
+run_sql_query.py
+   this is intended for generating output from EXPLAIN
+   SELECTs for a file of dump queries, into which some
+   standard parameters can be substituted.
+
+run_sql_query.py
+   this runs the specified queries, does a SHOW EXPLAIN
+   on them while they run, and then shoots them. Some
+   standard params can be substituted into the specified
+   queries. Use with caution.
+
+genrqsettings.py -- this generates configuration stanzas
+   for the runner and explainer for the given wiki.
+
+This is still quite preliminary.
