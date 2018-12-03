@@ -57,6 +57,8 @@ class DbInfo():
         if error:
             self.log.error("Errors encountered: %s", error.decode('utf-8'))
             sys.exit(1)
+        # FIXME we should not print the password here. No point in leaving
+        # it lying around.
         self.log.info("got db creds: %s", output.decode('utf-8'))
         creds = json.loads(output.decode('utf-8'))
         if 'wgDBuser' not in creds or not creds['wgDBuser']:
