@@ -445,24 +445,16 @@ class TableInfo():
         self.tablediffs.display_diffs(results, main_master, main_wiki)
 
 
-class OptSetup():
+def usage(message=None):
     '''
-    methods for getting command line opts, setting defaults, checking resulting values
+    display a helpful usage message with
+    an optional introductory message first
     '''
-    def __init__(self):
-        self.args = self.get_opts()
 
-    @staticmethod
-    def usage(message=None):
-        '''
-        display a helpful usage message with
-        an optional introductory message first
-        '''
-
-        if message is not None:
-            sys.stderr.write(message)
-            sys.stderr.write('\n')
-        usage_message = """
+    if message is not None:
+        sys.stderr.write(message)
+        sys.stderr.write('\n')
+    usage_message = """
 Usage: python3 check_table_structures.py  --tables name[,name...]
     [--wikifile <path>|--wikilist name[,name...]]
     [--dbhosts host[,host...]]
@@ -499,109 +491,111 @@ Options:
     --wikilist  (-l)   List of wiki db names, comma-separated
                        Default: none, read list from file
 """
-        usage_common = qargs.get_common_arg_docs(['settings'])
-        usage_flags = qargs.get_common_arg_docs(['flags'])
+    usage_common = qargs.get_common_arg_docs(['settings'])
+    usage_flags = qargs.get_common_arg_docs(['flags'])
 
-        sys.stderr.write(usage_message + usage_common + usage_flags)
-        sys.exit(1)
+    sys.stderr.write(usage_message + usage_common + usage_flags)
+    sys.exit(1)
 
-    @staticmethod
-    def get_opt(opt, val, args):
-        '''
-        set option value in args dict if the option
-        is one of the below
-        '''
-        if opt in ['-H', '--dbhosts']:
-            args['dbhosts'] = val.split(',')
-        elif opt in ['-f', '--wikifile']:
-            args['wikifile'] = val
-        elif opt in ['-l', '--wikilist']:
-            args['wikilist'] = val.split(',')
-        elif opt in ['-m', '--master']:
-            args['main_master'] = val
-        elif opt in ['-W', '--main_wiki']:
-            args['main_wiki'] = val
-        elif opt in ['-s', '--settings']:
-            args['settings'] = val
-        elif opt in ['-t', '--tables']:
-            args['tables'] = val.split(',')
-        else:
-            return False
-        return True
 
-    def check_opts(self, args):
-        '''
-        check for missing opts and whine about them
-        '''
-        qargs.check_mandatory_args(args, ['tables', 'settings', 'wikilist'], self.usage)
+def get_opt(opt, val, args):
+    '''
+    set option value in args dict if the option
+    is one of the below
+    '''
+    if opt in ['-H', '--dbhosts']:
+        args['dbhosts'] = val.split(',')
+    elif opt in ['-f', '--wikifile']:
+        args['wikifile'] = val
+    elif opt in ['-l', '--wikilist']:
+        args['wikilist'] = val.split(',')
+    elif opt in ['-m', '--master']:
+        args['main_master'] = val
+    elif opt in ['-W', '--main_wiki']:
+        args['main_wiki'] = val
+    elif opt in ['-s', '--settings']:
+        args['settings'] = val
+    elif opt in ['-t', '--tables']:
+        args['tables'] = val.split(',')
+    else:
+        return False
+    return True
 
-        count = 0
-        if args['main_wiki'] is not None:
-            count += 1
-        if args['main_master'] is not None:
-            count += 1
-        if count == 1:
-            self.usage("--master and --main_wiki must be provided together")
 
-    def get_opts(self):
-        '''
-        get and return a dict of args from the command line, falling
-        back to config file values or to config defaults when these
-        args are not passed in
-        '''
-        args = qargs.get_arg_defaults(['dbhosts', 'main_master', 'main_wiki'],
-                                      ['dryrun', 'verbose'])
+def check_opts(args):
+    '''
+    check for missing opts and whine about them
+    '''
+    qargs.check_mandatory_args(args, ['tables', 'settings', 'wikilist'], usage)
 
-        try:
-            (options, remainder) = getopt.gnu_getopt(
-                sys.argv[1:], 'H:f:l:m:s:t:vh',
-                ['dbhosts=', 'master=', 'main_wiki=',
-                 'settings=', 'tables=',
-                 'wikifile=', 'wikilist=',
-                 'dryrun', 'verbose', 'help'])
-        except getopt.GetoptError as err:
-            self.usage("Unknown option specified: " + str(err))
+    count = 0
+    if args['main_wiki'] is not None:
+        count += 1
+    if args['main_master'] is not None:
+        count += 1
+    if count == 1:
+        usage("--master and --main_wiki must be provided together")
 
-        for (opt, val) in options:
-            if not self.get_opt(opt, val, args):
-                if not qargs.get_flag(opt, args, self.usage):
-                    self.usage("Unknown option specified: <{opt}>".format(opt=opt))
 
-        if remainder:
-            self.usage("Unknown option specified: <{opt}>".format(opt=remainder))
+def setup_args():
+    '''
+    get and return a dict of args from the command line, falling
+    back to config file values or to config defaults when these
+    args are not passed in
+    '''
+    args = qargs.get_arg_defaults(['dbhosts', 'main_master', 'main_wiki'],
+                                  ['dryrun', 'verbose'])
 
-        globalconfigfile = args.get('settings')
-        conf = qconfig.config_setup(globalconfigfile)
-        # merge conf_settings into args, where conf_settings values are used for fallback
-        for setting in qconfig.SETTINGS:
-            if setting not in args:
-                args[setting] = conf[setting]
+    try:
+        (options, remainder) = getopt.gnu_getopt(
+            sys.argv[1:], 'H:f:l:m:s:t:vh',
+            ['dbhosts=', 'master=', 'main_wiki=',
+             'settings=', 'tables=',
+             'wikifile=', 'wikilist=',
+             'dryrun', 'verbose', 'help'])
+    except getopt.GetoptError as err:
+        usage("Unknown option specified: " + str(err))
 
-        if args['wikilist'] is None:
-            args['wikilist'] = self.get_wikis_from_file(args['wikifile'])
-        self.check_opts(args)
-        return args
+    for (opt, val) in options:
+        if not get_opt(opt, val, args):
+            if not qargs.get_flag(opt, args, usage):
+                usage("Unknown option specified: <{opt}>".format(opt=opt))
 
-    def get_wikis_from_file(self, filename):
-        '''
-        read and return list of wiki db names from file
-        one entry per line, no blank lines or comments allowed
-        '''
-        if not filename:
-            self.usage("No filename provided with list of wikis to process")
-        if not os.path.exists(filename):
-            self.usage("No such file {filename} with list of wikis to process".format(
-                filename=filename))
-        wikis = open(filename).read().splitlines()
-        return wikis
+    if remainder:
+        usage("Unknown option specified: <{opt}>".format(opt=remainder))
+
+    globalconfigfile = args.get('settings')
+    conf = qconfig.config_setup(globalconfigfile)
+    # merge conf_settings into args, where conf_settings values are used for fallback
+    for setting in qconfig.SETTINGS:
+        if setting not in args:
+            args[setting] = conf[setting]
+
+    if args['wikilist'] is None:
+        args['wikilist'] = get_wikis_from_file(args['wikifile'])
+    check_opts(args)
+    return args
+
+
+def get_wikis_from_file(filename):
+    '''
+    read and return list of wiki db names from file
+    one entry per line, no blank lines or comments allowed
+    '''
+    if not filename:
+        usage("No filename provided with list of wikis to process")
+    if not os.path.exists(filename):
+        usage("No such file {filename} with list of wikis to process".format(
+            filename=filename))
+    wikis = open(filename).read().splitlines()
+    return wikis
 
 
 def do_main():
     '''
     entry point
     '''
-    setup = OptSetup()
-    args = setup.args
+    args = setup_args()
 
     # even if this is set in the config file for use by other scripts, we want it off
     args['mwhost'] = None
