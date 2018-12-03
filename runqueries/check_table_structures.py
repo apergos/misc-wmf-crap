@@ -103,12 +103,16 @@ class TableDiffs():
             repl_params_missing = []
             param_diffs = []
             for field in master_params:
+                if field in ignore:
+                    continue
                 if field not in repl_params:
                     master_params_missing.append(field)
                 elif master_params[field] != repl_params[field] and field not in ignore:
                     param_diffs.append('{field}: master {mval}, repl {rval}'.format(
                         field=field, mval=master_params[field], rval=repl_params[field]))
             for field in repl_params:
+                if field in ignore:
+                    continue
                 if field not in master_params:
                     repl_params_missing.append(field)
             if master_params_missing:
@@ -399,13 +403,10 @@ class TableInfo():
             if 'parameters' in table_info_copy[table]:
                 table_info_copy[table]['parameters'] = TableDiffs.params_to_dict(
                     table_info_copy[table]['parameters'][0])
-                try:
-                    # get rid of junk that will vary or is spurious
-                    del table_info_copy[table]['parameters']['AUTO_INCREMENT']
-                    del table_info_copy[table]['parameters']['AVG_ROW_LENGTH']
-                    del table_info_copy[table]['parameters']['DEFAULT']
-                except KeyError:
-                    continue
+                # get rid of junk that will vary or is spurious
+                table_info_copy[table]['parameters'].pop('AUTO_INCREMENT', None)
+                table_info_copy[table]['parameters'].pop('AVG_ROW_LENGTH', None)
+                table_info_copy[table]['parameters'].pop('DEFAULT', None)
         return json.dumps(table_info_copy, sort_keys=True)
 
     @staticmethod
