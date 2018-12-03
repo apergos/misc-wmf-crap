@@ -10,6 +10,7 @@ the output to stdout
 
 import getopt
 import sys
+import time
 import MySQLdb
 import queries.config as qconfig
 import queries.utils as qutils
@@ -37,6 +38,8 @@ class RunQueryInfo(qqueryinfo.QueryInfo):
             if self.args['verbose']:
                 print("running:")
                 print(qutils.prettyprint_query(query))
+            # be nice to the servers
+            time.sleep(0.05)
             try:
                 cursor.execute(query.encode('utf-8'))
                 result = cursor.fetchall()

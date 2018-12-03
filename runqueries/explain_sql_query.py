@@ -25,6 +25,7 @@ and db cursor.
 import getopt
 import sys
 import threading
+import time
 import MySQLdb
 import queries.config as qconfig
 import queries.utils as qutils
@@ -201,6 +202,8 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
             else:
                 cursor, thread_id = self.dbinfo.get_cursor(host)
             self.dbinfo.do_use_wiki(cursor, wiki)
+            # be nice to the servers
+            time.sleep(0.05)
             thr = self.start_query(cursor, wiki, query)
             if self.args['dryrun']:
                 thread_id = '<none (dryrun)>'
