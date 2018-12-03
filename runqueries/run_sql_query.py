@@ -12,7 +12,6 @@ import getopt
 import sys
 import time
 import MySQLdb
-import queries.config as qconfig
 import queries.utils as qutils
 import queries.queryinfo as qqueryinfo
 import queries.args as qargs
@@ -111,21 +110,8 @@ def do_main():
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))
 
-    for (opt, val) in options:
-        if not get_opt(opt, val, args):
-            if not qargs.get_flag(opt, args, usage):
-                usage("Unknown option specified: <{opt}>".format(opt=opt))
-
-    if remainder:
-        usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
-
-    qargs.check_mandatory_args(args, ['yamlfile', 'queryfile', 'settings'], usage)
-
-    configfile = args.get('settings')
-    conf = qconfig.config_setup(configfile)
-    for setting in qconfig.SETTINGS:
-        if setting not in args:
-            args[setting] = conf[setting]
+    qargs.handle_common_args(options, args, usage, remainder,
+                             ['yamlfile', 'queryfile', 'settings'], get_opt)
 
     # even if this is set in the config file for use by other scripts, we want it off
     args['mwhost'] = None

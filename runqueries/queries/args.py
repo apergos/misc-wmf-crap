@@ -4,6 +4,9 @@ common arg handling and messages
 """
 
 
+import queries.config as qconfig
+
+
 def get_flag(opt, args, usage):
     '''
     set boolean flag in args dict if the flag is
@@ -99,4 +102,27 @@ def get_arg_defaults(opts, flags):
         args[opt] = None
     for flag in flags:
         args[flag] = False
+    return args
+
+
+def handle_common_args(options, args, usage, remainder, mandatory, get_opt):
+    '''
+    get and check common args, merge in conf settings
+    '''
+    for (opt, val) in options:
+        if not get_opt(opt, val, args):
+            if not get_flag(opt, args, usage):
+                usage("Unknown option specified: <{opt}>".format(opt=opt))
+
+    if remainder:
+        usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
+
+    configfile = args.get('settings')
+    conf = qconfig.config_setup(configfile)
+    for setting in qconfig.SETTINGS:
+        if setting not in args:
+            args[setting] = conf[setting]
+
+    check_mandatory_args(args, mandatory, usage)
+
     return args

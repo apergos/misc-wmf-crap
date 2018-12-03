@@ -22,7 +22,6 @@ import logging.config
 from collections import OrderedDict
 import time
 import MySQLdb
-import queries.config as qconfig
 import queries.logger as qlogger
 import queries.dbinfo as qdbinfo
 import queries.args as qargs
@@ -522,12 +521,11 @@ def get_opt(opt, val, args):
     return True
 
 
-def check_opts(args):
+def check_dependent_opts(args):
     '''
-    check for missing opts and whine about them
+    check for opts that depend on other opts and whine about them
+    if needed
     '''
-    qargs.check_mandatory_args(args, ['tables', 'settings', 'wikilist'], usage)
-
     count = 0
     if args['main_wiki'] is not None:
         count += 1
@@ -556,24 +554,11 @@ def setup_args():
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))
 
-    for (opt, val) in options:
-        if not get_opt(opt, val, args):
-            if not qargs.get_flag(opt, args, usage):
-                usage("Unknown option specified: <{opt}>".format(opt=opt))
-
-    if remainder:
-        usage("Unknown option specified: <{opt}>".format(opt=remainder))
-
-    globalconfigfile = args.get('settings')
-    conf = qconfig.config_setup(globalconfigfile)
-    # merge conf_settings into args, where conf_settings values are used for fallback
-    for setting in qconfig.SETTINGS:
-        if setting not in args:
-            args[setting] = conf[setting]
-
+    args = qargs.handle_common_args(options, args, usage, remainder,
+                                    ['tables', 'settings', 'wikilist'], get_opt)
     if args['wikilist'] is None:
         args['wikilist'] = get_wikis_from_file(args['wikifile'])
-    check_opts(args)
+    check_dependent_opts(args)
     return args
 
 
