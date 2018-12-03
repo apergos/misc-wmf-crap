@@ -21,7 +21,7 @@ class DbInfo():
     are managed here
     '''
     def __init__(self, args):
-        qlogger.logging_setup()
+        qlogger.logging_setup(args['logfile'])
         if args['verbose'] or args['dryrun']:
             log_type = 'verbose'
         else:

@@ -22,7 +22,7 @@ class QueryInfo():
 
     def __init__(self, args):
         self.args = args
-        qlogger.logging_setup()
+        qlogger.logging_setup(args['logfile'])
         if self.args['verbose'] or self.args['dryrun']:
             log_type = 'verbose'
         else:

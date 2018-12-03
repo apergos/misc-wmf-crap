@@ -8,8 +8,8 @@ import configparser
 import sys
 
 
-SETTINGS = ['domain', 'dumpsdir', 'dumpshost', 'multiversion', 'mwhost', 'mwrepo', 'php',
-            'sudouser', 'tables', 'wikifile', 'wikilist']
+SETTINGS = ['domain', 'dumpsdir', 'dumpshost', 'logfile', 'multiversion', 'mwhost',
+            'mwrepo', 'php', 'sudouser', 'tables', 'wikifile', 'wikilist']
 
 
 def config_setup(configfile):
@@ -37,6 +37,7 @@ def get_config_defaults():
     return {
         'dumpshost': '',
         'dumpspath': '/dumps',
+        'logfile': 'sql_checker_errors.log',
         'multiversion': '',
         'mwhost': '',
         'mwrepo': '/srv/mediawiki',

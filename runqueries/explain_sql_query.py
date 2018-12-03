@@ -238,8 +238,7 @@ and wiki dbs. The results are written to stdout.
     usage_args = """
 Output:
 
-With verbose mode enabled, all logging messages get written to a file in the
-current working directory, 'sql_checker_errors.log'.
+With verbose mode enabled, all logging messages get written to a file.
 
 All errors or warnings are written to stderr, in addition to possibly being
 logged to a file (see above).

@@ -12,7 +12,7 @@ import logging.config
 import sys
 
 
-def logging_setup():
+def logging_setup(logfile):
     '''
     standard logging handlers and formatters for all
     library modules
@@ -35,7 +35,7 @@ def logging_setup():
             'file': {
                 'level': 'INFO',
                 'class': 'logging.FileHandler',
-                'filename': 'sql_checker_errors.log',
+                'filename': logfile,
                 'formatter': 'simple'
             },
         },
