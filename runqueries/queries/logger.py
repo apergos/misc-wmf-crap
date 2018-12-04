@@ -27,7 +27,7 @@ def logging_setup(logfile):
         },
         'handlers': {
             'console': {
-                'level': 'WARNING',
+                'level': 'ERROR',
                 'class': 'logging.StreamHandler',
                 'stream': sys.stderr,
                 'formatter': 'simple'
@@ -46,7 +46,7 @@ def logging_setup(logfile):
                 'propagate': True
             },
             'normal': {
-                'handlers': ['console'],
+                'handlers': ['console', 'file'],
                 'level': 'WARNING',
                 'propagate': True
             }

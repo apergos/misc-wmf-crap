@@ -33,9 +33,14 @@ class TableDiffs():
     '''
     methods for comparing and displaying db table structure info
     '''
-    def __init__(self, dbinfo, verbose):
+    def __init__(self, dbinfo):
         self.dbinfo = dbinfo
-        self.verbose = verbose
+        qlogger.logging_setup(self.dbinfo.args['logfile'])
+        if self.dbinfo.args['verbose'] or self.dbinfo.args['dryrun']:
+            log_type = 'verbose'
+        else:
+            log_type = 'normal'
+        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
         # these are set in display_wikidb_diff as needed
         self.wiki = None
         self.dbhost = None
@@ -56,20 +61,20 @@ class TableDiffs():
         given the table structure, display it nicely
         '''
         for table in table_structure:
-            print(self.indent(3), 'table:', table)
-            print(self.indent(7), 'columns:')
+            self.log.info("%stable:%s", self.indent(3), table)
+            self.log.info("%scolumns:", self.indent(7))
             if 'columns' in table_structure[table]:
                 for column in table_structure[table]['columns']:
-                    print(self.indent(11), 'name:', column)
-                    print(self.indent(11), 'properties:', table_structure[table]['columns'][column])
-            print(self.indent(7), 'keys:')
+                    self.log.info("%sname:%s", self.indent(11), column)
+                    self.log.info("%sproperties:%s", self.indent(11), table_structure[table]['columns'][column])
+            self.log.info("%skeys:", self.indent(7))
             if 'keys' in table_structure[table]:
                 for key in table_structure[table]['keys']:
-                    print(self.indent(12), 'info:', key)
-            print(self.indent(7), 'parameters:')
+                    self.log.info("%sinfo:%s", self.indent(12), key)
+            self.log.info("%sparameters:", self.indent(7))
             if 'parameters' in table_structure[table]:
                 for param in table_structure[table]['parameters']:
-                    print(self.indent(11), param.lstrip(') '))
+                    self.log.info("%s%s", self.indent(11), param.lstrip(') '))
 
     @staticmethod
     def params_to_dict(text):
@@ -229,21 +234,19 @@ class TableDiffs():
             for wiki in results[master]:
                 print('master:', master)
                 print('wiki:', wiki)
-                if self.verbose:
-                    self.display_table_structure(results[master][wiki])
+                self.display_table_structure(results[master][wiki])
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 grouped_dbhosts = self.get_grouped_dbhosts(flattened, dbhosts_todo, wiki)
                 done = []
-                if self.verbose:
+                if self.dbinfo.args['verbose']:
                     print("hosts grouped by results for wiki:",
                           [grouped_dbhosts[wiki].values() for wiki in grouped_dbhosts])
                 for dbhost in dbhosts_todo:
                     if dbhost in done or dbhost == master:
                         continue
-                    if self.verbose:
-                        print('replica:', dbhost)
-                        print('wiki:', wiki)
-                        self.display_table_structure(results[dbhost][wiki])
+                    self.log.info('replica: %s', dbhost)
+                    self.log.info('wiki: %s', wiki)
+                    self.display_table_structure(results[dbhost][wiki])
                 print('DIFFS ****')
                 for dbhost in dbhosts_todo:
                     if dbhost in done or dbhost == master:
@@ -282,7 +285,7 @@ class TableDiffs():
         print("all wiki tables will be checked against {db}:{wiki}".format(
             db=main_master, wiki=main_wiki))
 
-        if self.verbose and master_results:
+        if master_results:
             self.display_table_structure(master_results[main_wiki])
 
         grouped_wikis = self.get_grouped_wikis(flattened)
@@ -294,9 +297,8 @@ class TableDiffs():
                 # wikis in our list to check
                 continue
             grouped_dbhosts = self.get_grouped_dbhosts(flattened)
-            if self.verbose:
-                print("db host groups by wiki results:",
-                      [grouped_dbhosts[wiki].values() for wiki in grouped_dbhosts])
+            self.log.info("db host groups by wiki results: %s",
+                          [grouped_dbhosts[wiki].values() for wiki in grouped_dbhosts])
             for wiki in results[section_master]:
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 dbhosts_done = []
@@ -305,10 +307,9 @@ class TableDiffs():
                         continue
                     if dbhost in wikis_done and wiki in wikis_done[dbhost]:
                         continue
-                    if self.verbose:
-                        print('replica:', dbhost)
-                        print('wiki:', wiki)
-                        self.display_table_structure(results[dbhost][wiki])
+                    self.log.info('replica: %s', dbhost)
+                    self.log.info('wiki: %s', wiki)
+                    self.display_table_structure(results[dbhost][wiki])
 
                 # we assume that if two hosts serve one wiki in common, they
                 # serve the same list; this is what the MW sections config
@@ -338,7 +339,8 @@ class TableDiffs():
                     if len(same_result_wikis) > 1:
                         print("wikis on these hosts with same table structure:", same_result_wikis)
                     dbhosts_done.extend(same_result_hosts)
-                    print("structure for wiki", wiki, "dbhost", dbhost, "is", flattened[dbhost][wiki])
+                    self.dbinfo.log.warning("structure for wiki %s dbhost %s is %s", wiki, dbhost,
+                                            flattened[dbhost][wiki])
                     self.dbhost = dbhost
                     self.display_wikidb_diff(results, wiki, main_master, main_wiki)
 
@@ -456,7 +458,7 @@ class TableInfo():
         else:
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
-        self.tablediffs = TableDiffs(self.dbinfo, self.args['verbose'])
+        self.tablediffs = TableDiffs(self.dbinfo)
 
     @staticmethod
     def flatten_one_wiki(table_info, ignores):
