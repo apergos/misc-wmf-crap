@@ -9,7 +9,7 @@ import sys
 
 
 SETTINGS = ['domain', 'dumpsdir', 'dumpshost', 'logfile', 'multiversion', 'mwhost',
-            'mwrepo', 'php', 'sudouser', 'tables', 'wikifile', 'wikilist']
+            'mwrepo', 'params_ignore', 'php', 'sudouser', 'tables', 'wikifile', 'wikilist']
 
 
 def config_setup(configfile):
@@ -41,6 +41,7 @@ def get_config_defaults():
         'multiversion': '',
         'mwhost': '',
         'mwrepo': '/srv/mediawiki',
+        'params_ignore': 'AUTO_INCREMENT,DEFAULT,AVG_ROW_LENGTH',
         'php': '/usr/bin/php',
         'sudouser': '',
         'tables': '',
@@ -60,7 +61,7 @@ def parse_config(conf):
         conf.add_section('settings')
     for setting in SETTINGS:
         args[setting] = conf.get('settings', setting)
-    for setting in ['wikilist', 'tables']:
+    for setting in ['wikilist', 'tables', 'params_ignore']:
         if args[setting]:
             args[setting] = args[setting].split(',')
     return args
