@@ -55,15 +55,15 @@ class DbInfo():
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
+            sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
             self.log.error("Errors encountered: %s", error.decode('utf-8'))
             sys.exit(1)
-        # FIXME we should not print the password here. No point in leaving
-        # it lying around.
-        self.log.info("got db creds: %s", output.decode('utf-8'))
         creds = json.loads(output.decode('utf-8'))
         if 'wgDBuser' not in creds or not creds['wgDBuser']:
+            sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
         if 'wgDBpassword' not in creds or not creds['wgDBpassword']:
+            sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError("Missing value for wgDBpassword, bad dbcreds file?")
         return creds
 
