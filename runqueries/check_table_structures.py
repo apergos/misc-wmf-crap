@@ -33,10 +33,11 @@ class TableDiffs():
     '''
     methods for comparing and displaying db table structure info
     '''
-    def __init__(self, dbinfo):
+    def __init__(self, args, dbinfo):
+        self.args = args
         self.dbinfo = dbinfo
-        qlogger.logging_setup(self.dbinfo.args['logfile'])
-        if self.dbinfo.args['verbose'] or self.dbinfo.args['dryrun']:
+        qlogger.logging_setup(self.args['logfile'])
+        if self.args['verbose'] or self.args['dryrun']:
             log_type = 'verbose'
         else:
             log_type = 'normal'
@@ -108,16 +109,16 @@ class TableDiffs():
             repl_params_missing = []
             param_diffs = []
             for field in master_params:
-                if field in self.dbinfo.args['params_ignore']:
+                if field in self.args['params_ignore']:
                     continue
                 if field not in repl_params:
                     master_params_missing.append(field)
                 elif (master_params[field] != repl_params[field] and
-                      field not in self.dbinfo.args['params_ignore']):
+                      field not in self.args['params_ignore']):
                     param_diffs.append('{field}: master {mval}, repl {rval}'.format(
                         field=field, mval=master_params[field], rval=repl_params[field]))
             for field in repl_params:
-                if field in self.dbinfo.args['params_ignore']:
+                if field in self.args['params_ignore']:
                     continue
                 if field not in master_params:
                     repl_params_missing.append(field)
@@ -229,7 +230,7 @@ class TableDiffs():
         '''
         masters = self.dbinfo.get_masters()
         for master in masters:
-            wikis_todo = self.dbinfo.get_wikis_for_dbhost(master, self.dbinfo.args['wikilist'])
+            wikis_todo = self.dbinfo.get_wikis_for_dbhost(master, self.args['wikilist'])
             if not wikis_todo:
                 continue
             for wiki in results[master]:
@@ -459,7 +460,7 @@ class TableInfo():
         else:
             log_type = 'normal'
         self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
-        self.tablediffs = TableDiffs(self.dbinfo)
+        self.tablediffs = TableDiffs(self.args, self.dbinfo)
 
     @staticmethod
     def flatten_one_wiki(table_info, ignores):
@@ -612,7 +613,7 @@ class TableInfo():
         compared to the master
         '''
         results = {}
-        for dbhost in self.dbinfo.args['dbhosts']:
+        for dbhost in self.args['dbhosts']:
             wikis_todo = self.dbinfo.get_wikis_for_dbhost(dbhost, wikilist)
             if not wikis_todo:
                 continue
@@ -636,7 +637,7 @@ class TableInfo():
                     results[dbhost][wiki] = self.check_tables(wiki, dbcursor)
             if not self.args['dryrun']:
                 dbcursor.close()
-        flattened = self.flatten_table_info(results, self.dbinfo.args['params_ignore'])
+        flattened = self.flatten_table_info(results, self.args['params_ignore'])
         self.tablediffs.display_diffs(results, flattened, main_master, main_wiki)
 
 
