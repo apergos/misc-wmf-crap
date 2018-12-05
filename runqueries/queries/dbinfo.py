@@ -136,22 +136,25 @@ class DbInfo():
             sys.exit(1)
         if not output:
             raise IOError("Failed to retrieve db config")
-        self.log.info("got db host info: %s", output.decode('utf-8'))
         try:
             results = json.loads(output.decode('utf-8'), object_pairs_hook=OrderedDict)
         except ValueError:
             results = None
         if not results:
+            sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
             raise IOError(
                 "Failed to get values for wgLBFactoryConf for {wiki}, got output {output}".format(
                     wiki=wikidb, output=output))
         lbfactoryconf = results['wgLBFactoryConf']
         if 'wgLBFactoryConf' not in results:
+            sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError("missing wgLBFactoryConf")
         lbfactoryconf = results['wgLBFactoryConf']
         if 'sectionLoads' not in lbfactoryconf:
+            sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError("missing sectionLoads from wgLBFactoryConf")
         if 'sectionsByDB' not in lbfactoryconf:
+            sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError("missing sectionsByDB from wgLBFactoryConf")
         dbs = []
         for section in lbfactoryconf['sectionLoads']:
