@@ -48,10 +48,7 @@ class HostWikiGroups():
         groups = {}
         for dbhost in dbhosts:
             if dbhost in table_descr_by_host_wiki and wiki in table_descr_by_host_wiki[dbhost]:
-                if table_descr_by_host_wiki[dbhost][wiki] not in groups:
-                    groups[table_descr_by_host_wiki[dbhost][wiki]] = [dbhost]
-                else:
-                    groups[table_descr_by_host_wiki[dbhost][wiki]].append(dbhost)
+                groups.setdefault(table_descr_by_host_wiki[dbhost][wiki], []).append(dbhost)
         return groups
 
     @staticmethod
@@ -107,10 +104,7 @@ class HostWikiGroups():
         '''
         groups = {}
         for wiki in table_descr_by_wiki:
-            if table_descr_by_wiki[wiki] not in groups:
-                groups[table_descr_by_wiki[wiki]] = [wiki]
-            else:
-                groups[table_descr_by_wiki[wiki]].append(wiki)
+            groups.setdefault(table_descr_by_wiki[wiki], []).append(wiki)
         return groups
 
     @staticmethod
@@ -406,10 +400,8 @@ class TableDiffs():
                 # guarantees us
                 print('DIFFS ****', wiki)
                 for dbhost in dbhosts_todo:
-                    if dbhost in dbhosts_done or dbhost == main_master:
-                        print("skipping", dbhost)
-                        continue
-                    if dbhost in wikis_done and wiki in wikis_done[dbhost]:
+                    if (dbhost in dbhosts_done or dbhost == main_master or
+                            (dbhost in wikis_done and wiki in wikis_done[dbhost])):
                         print("skipping", dbhost)
                         continue
                     same_result_hosts = HostWikiGroups.get_matching_hosts(
@@ -420,10 +412,7 @@ class TableDiffs():
                     # don't display diffs for other wikis for dbhosts with the
                     # same table description
                     for same_result_host in same_result_hosts:
-                        if same_result_host not in wikis_done:
-                            wikis_done[same_result_host] = same_result_wikis
-                        else:
-                            wikis_done[same_result_host].extend(same_result_wikis)
+                        wikis_done.setdefault(same_result_host, []).extend(same_result_wikis)
                     # list all the wikis on the other dbs with the same table description,
                     # we won't display diffs for them either. if only the current wiki
                     # is in the list, don't bother to display that
