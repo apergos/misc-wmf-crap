@@ -105,7 +105,7 @@ class DbInfo():
         '''
         return all dbs that are (probably) masters based on config file info
         '''
-        return [dbhost for dbhost in self.args['dbhosts'] if self.is_master(dbhost)]
+        return list({dbhost for dbhost in self.args['dbhosts'] if self.is_master(dbhost)})
 
     def get_dbhosts(self, wikidb):
         '''

@@ -318,8 +318,7 @@ class TableDiffs():
         info on the master, compare the tables of
         that wiki on all replicas in that section
         '''
-        masters = self.dbinfo.get_masters()
-        for master in masters:
+        for master in self.dbinfo.get_masters():
             wikis_todo = self.dbinfo.get_wikis_for_dbhost(master, self.args['wikilist'])
             if not wikis_todo:
                 continue
@@ -351,6 +350,42 @@ class TableDiffs():
                     self.dbhost = dbhost
                     self.display_wikidb_diff(table_info_per_dbhost_wiki, wiki, master, None)
 
+    @staticmethod
+    def handle_same_result_wikis(dbhost, wiki, same_result_hosts, grouped_wikis, wikis_done):
+        '''
+        for wikis/dbhosts with the same table description as the specified wiki on
+        the specified dbhost, display the list of dbhosts, mark the wikis as done on
+        those hosts so we can skip displaying the diff for them
+        '''
+        same_result_wikis = HostWikiGroups.get_matching_wikis(
+            wiki, grouped_wikis[dbhost])
+        # don't display diffs for other wikis for dbhosts with the
+        # same table description
+        for same_result_host in same_result_hosts:
+            wikis_done.setdefault(same_result_host, []).extend(same_result_wikis)
+        # list all the wikis on the other dbs with the same table description,
+        # we won't display diffs for them either. if only the current wiki
+        # is in the list, don't bother to display that
+        if len(same_result_wikis) > 1:
+            print("wikis on these hosts with same table description:",
+                  same_result_wikis)
+        return wikis_done
+
+    def display_master_results(self, main_master, main_wiki, table_info_per_dbhost_wiki):
+        '''
+        if desired, display table info for the main wiki on the main master
+        '''
+        # a dry run will produce this
+        master_results = {}
+
+        if main_master in table_info_per_dbhost_wiki:
+            master_results = table_info_per_dbhost_wiki[main_master]
+        print("all wiki tables will be checked against {db}:{wiki}".format(
+            db=main_master, wiki=main_wiki))
+
+        if master_results:
+            self.display_table_info(master_results[main_wiki])
+
     def display_diffs_master_all_sects(self, table_info_per_dbhost_wiki,
                                        table_descr_by_host_wiki, main_master, main_wiki):
         '''
@@ -362,20 +397,11 @@ class TableDiffs():
         better exmple: decide enwiki on db2010 has the table layout you
         want on all wikis everywhere and compare them all against it
         '''
-        # a dry run will produce this
-        master_results = {}
-        if main_master in table_info_per_dbhost_wiki:
-            master_results = table_info_per_dbhost_wiki[main_master]
-        print("all wiki tables will be checked against {db}:{wiki}".format(
-            db=main_master, wiki=main_wiki))
-
-        if master_results:
-            self.display_table_info(master_results[main_wiki])
+        self.display_master_results(main_master, main_wiki, table_info_per_dbhost_wiki)
 
         grouped_wikis = HostWikiGroups.get_grouped_wikis(table_descr_by_host_wiki)
         wikis_done = {}
-        masters = list(set(self.dbinfo.get_masters()))
-        for section_master in masters:
+        for section_master in self.dbinfo.get_masters():
             if section_master not in table_info_per_dbhost_wiki:
                 # this db (and so the whole section) did not have any of them
                 # wikis in our list to check
@@ -387,9 +413,8 @@ class TableDiffs():
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 dbhosts_done = []
                 for dbhost in dbhosts_todo:
-                    if dbhost in dbhosts_done or dbhost == main_master:
-                        continue
-                    if dbhost in wikis_done and wiki in wikis_done[dbhost]:
+                    if (dbhost in dbhosts_done or dbhost == main_master or
+                            (dbhost in wikis_done and wiki in wikis_done[dbhost])):
                         continue
                     self.log.info('replica: %s', dbhost)
                     self.log.info('wiki: %s', wiki)
@@ -407,18 +432,8 @@ class TableDiffs():
                     same_result_hosts = HostWikiGroups.get_matching_hosts(
                         dbhost, grouped_dbhosts[wiki])
                     print("common results for hosts:", same_result_hosts)
-                    same_result_wikis = HostWikiGroups.get_matching_wikis(
-                        wiki, grouped_wikis[dbhost])
-                    # don't display diffs for other wikis for dbhosts with the
-                    # same table description
-                    for same_result_host in same_result_hosts:
-                        wikis_done.setdefault(same_result_host, []).extend(same_result_wikis)
-                    # list all the wikis on the other dbs with the same table description,
-                    # we won't display diffs for them either. if only the current wiki
-                    # is in the list, don't bother to display that
-                    if len(same_result_wikis) > 1:
-                        print("wikis on these hosts with same table description:",
-                              same_result_wikis)
+                    wikis_done = self.handle_same_result_wikis(dbhost, wiki, same_result_hosts,
+                                                               grouped_wikis, wikis_done)
                     dbhosts_done.extend(same_result_hosts)
                     self.dbinfo.log.warning("table description for wiki %s dbhost %s is %s",
                                             wiki, dbhost,
