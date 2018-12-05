@@ -6,7 +6,7 @@ manage db server config info
 
 import logging
 import sys
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, SubprocessError
 import json
 from collections import OrderedDict
 import MySQLdb
@@ -56,8 +56,12 @@ class DbInfo():
         output, error = proc.communicate()
         if error:
             sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
-            raise IOError("Errors encountered: {error}".format(error=error.decode('utf-8')))
-        creds = json.loads(output.decode('utf-8'))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
+        try:
+            creds = json.loads(output.decode('utf-8'))
+        except ValueError:
+            sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
+            raise
         if 'wgDBuser' not in creds or not creds['wgDBuser']:
             sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError("Missing value for wgDBuser, bad dbcreds file?")
@@ -131,16 +135,16 @@ class DbInfo():
         output, error = proc.communicate()
         if error and not error.startswith(b'Warning'):
             # ignore stuff like "Warning: rename(/tmp/...) permission denied
-            raise IOError("Errors encountered: {error}".format(error=error.decode('utf-8')))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         if not output:
-            raise IOError("Failed to retrieve db config")
+            raise ValueError("Failed to retrieve db config")
         try:
             results = json.loads(output.decode('utf-8'), object_pairs_hook=OrderedDict)
         except ValueError:
             results = None
         if not results:
             sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
-            raise IOError(
+            raise ValueError(
                 "Failed to get values for wgLBFactoryConf for {wiki}, got output {output}".format(
                     wiki=wikidb, output=output))
         lbfactoryconf = results['wgLBFactoryConf']

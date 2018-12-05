@@ -32,7 +32,7 @@ import sys
 import getopt
 import json
 import logging
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, SubprocessError
 import queries.utils as qutils
 import queries.dbinfo as qdbinfo
 import queries.args as qargs
@@ -71,14 +71,14 @@ class QueryRunner():
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            raise IOError("Errors encountered:", error.decode('utf-8'))
-        pageinfo = json.loads(output.decode('utf-8'))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         try:
+            pageinfo = json.loads(output.decode('utf-8'))
             thispage = pageinfo['query']['pages'][pageid.decode('utf-8')]
             namespace = thispage['ns']
             title = thispage['title']
         except Exception:
-            raise IOError("Failed to get pageinfo for page id {pageid}".format(
+            raise ValueError("Failed to get pageinfo for page id {pageid}".format(
                 pageid=pageid.decode('utf-8')))
         if namespace != 0 and ':' in title:
             # dump the namespace prefix that will have been stuffed onto the title
@@ -127,13 +127,13 @@ class QueryRunner():
         output, error = proc.communicate()
         # ignore stuff like "Warning: rename(/tmp/...) permission denied
         if error and not error.startswith(b'Warning'):
-            raise IOError("Errors encountered:", error.decode('utf-8'))
+            raise SubprocessError("Errors encountered: {error}".format(error.decode('utf-8')))
         try:
             settings = json.loads(output.decode('utf-8'))
         except ValueError:
             settings = None
         if not settings or len(settings) != 2:
-            raise IOError(
+            raise ValueError(
                 "Failed to get values for wgCanonicalServer, " +
                 "wgScriptPath for {wiki}, got output {output}".format(
                     wiki=self.config['wikidb'], output=output))
@@ -172,11 +172,11 @@ class QueryRunner():
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error and not error.startswith(b"Warning:"):
-            raise IOError("Errors encountered:", error.decode('utf-8'))
+            raise SubprocessError("Errors encountered: {error}".format(error.decode('utf-8')))
         revid = output.rstrip(b'\n')
         if not revid:
-            raise IOError(
-                "Failed to get midpoint revid for {wiki}".format(wiki=self.config['wikidb']))
+            raise ValueError("Failed to get midpoint revid for {wiki}".format(
+                wiki=self.config['wikidb']))
         return revid
 
 
@@ -223,7 +223,7 @@ class RevCounter():
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
-            raise IOError("Errors encountered:", error.decode('utf-8'))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         # expect something like
         # 20180920  20181001  20181020  20181101 20181120 latest
         entries = output.split()
@@ -231,7 +231,7 @@ class RevCounter():
             entries = [entry for entry in entries if entry.isdigit() and len(entry) == 8]
             return entries[-2]
         except Exception:
-            raise IOError("Errors encountered getting run dates for {wiki} dumps:".format(
+            raise ValueError("Errors encountered getting run dates for {wiki} dumps:".format(
                 wiki=self.config['wikidb']))
 
     def get_pageid_revcount(self, rundate):
@@ -260,9 +260,11 @@ class RevCounter():
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
-            raise IOError("Errors encountered:", error.decode('utf-8'))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         # expect pageid revcount as the last line
         lines = output.splitlines()
+        if not lines:
+            raise ValueError("No pages found with enough revisions to work on")
         pageid = lines[-1].split()[0]
         revcount = lines[-1].split()[1]
         return pageid, revcount

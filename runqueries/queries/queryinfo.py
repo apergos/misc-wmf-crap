@@ -67,7 +67,7 @@ class QueryInfo():
         query template; this assumes an initialized db cursor
         is passed in
         '''
-        raise MySQLdb.Error("Unimplemented class run_on_wiki")
+        raise NotImplementedError("Unimplemented class run_on_wiki")
 
     def run_on_server(self, host, wikis_info, keep_cursor):
         '''
