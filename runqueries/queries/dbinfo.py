@@ -146,7 +146,7 @@ class DbInfo():
             sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
             raise ValueError(
                 "Failed to get values for wgLBFactoryConf for {wiki}, got output {output}".format(
-                    wiki=wikidb, output=output))
+                    wiki=wikidb, output=output)) from None
         lbfactoryconf = results['wgLBFactoryConf']
         if 'wgLBFactoryConf' not in results:
             sys.stderr.write("got db host info: {creds}\n".format(creds=output.decode('utf-8')))
@@ -235,9 +235,10 @@ class DbInfo():
                 self.log.warning("failed to connect to or get cursor from %s:%s, %s %s",
                                  host, port, ex.args[0], ex.args[1])
                 return None, None
-            raise MySQLdb.Error("failed to connect to or get cursor from "
-                                "{host}:{port}, {errno}:{message}".format(
-                                    host=host, port=port, errno=ex.args[0], message=ex.args[1]))
+            raise MySQLdb.Error(
+                "failed to connect to or get cursor from "
+                "{host}:{port}, {errno}:{message}".format(
+                    host=host, port=port, errno=ex.args[0], message=ex.args[1])) from None
 
     def do_use_wiki(self, cursor, wiki, lost_conn_ok=False):
         '''
@@ -260,5 +261,5 @@ class DbInfo():
             if result is not None:
                 self.log.error("returned from fetchall: %s", result)
             raise MySQLdb.Error("exception for use {wiki} ({errno}:{message})".format(
-                wiki=wiki, errno=ex.args[0], message=ex.args[1]))
+                wiki=wiki, errno=ex.args[0], message=ex.args[1])) from None
         return True

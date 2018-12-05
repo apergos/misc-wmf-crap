@@ -79,7 +79,7 @@ class QueryRunner():
             title = thispage['title']
         except Exception:
             raise ValueError("Failed to get pageinfo for page id {pageid}".format(
-                pageid=pageid.decode('utf-8')))
+                pageid=pageid.decode('utf-8'))) from None
         if namespace != 0 and ':' in title:
             # dump the namespace prefix that will have been stuffed onto the title
             title = title.split(':', 1)[1]
@@ -232,7 +232,7 @@ class RevCounter():
             return entries[-2]
         except Exception:
             raise ValueError("Errors encountered getting run dates for {wiki} dumps:".format(
-                wiki=self.config['wikidb']))
+                wiki=self.config['wikidb'])) from None
 
     def get_pageid_revcount(self, rundate):
         '''

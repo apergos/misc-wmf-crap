@@ -36,3 +36,24 @@ LEFT JOIN `comment` `comment_rev_comment` ON ((comment_id = revcomment_comment_i
 INNER JOIN `page` ON ((rev_page=page_id))
 WHERE (page_id >= $STARTPAGE AND page_id < $ENDPAGE) AND (rev_page>0 OR (rev_page=0 AND rev_id>0))
 ORDER BY rev_page ASC,rev_id ASC LIMIT 50000;
+----------------------
+#
+# Query for Special:Export of several pages, no revision history; each page
+# is requested separately; offset
+# uses: dumpPages ( $this->history & self::CURRENT )
+#
+SELECT
+rev_id,rev_page,rev_timestamp,rev_minor_edit,rev_deleted,rev_len,rev_parent_id,rev_sha1,
+COALESCE( comment_rev_comment.comment_text, rev_comment ),comment_data,comment_id,
+rev_user,rev_user_text,
+NULL AS `rev_actor`,
+page_namespace,page_title,page_id,page_latest,page_is_redirect,page_len,
+old_text,old_flags,
+page_restrictions,
+rev_text_id
+FROM `page`
+INNER JOIN `revision` ON ((page_id=rev_page AND page_latest=rev_id))
+LEFT JOIN `revision_comment_temp` `temp_rev_comment` ON ((revcomment_rev = rev_id))
+LEFT JOIN `comment` `comment_rev_comment` ON ((comment_id = revcomment_comment_id))
+INNER JOIN `text` ON ((rev_text_id=old_id))
+WHERE (page_namespace=$NAMESPACE AND page_title='$TITLE') AND (rev_page>$BIGPAGE OR (rev_page=$BIGPAGE AND rev_id>$REVID))

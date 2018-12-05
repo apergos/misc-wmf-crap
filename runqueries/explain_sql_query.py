@@ -48,7 +48,7 @@ def async_query(cursor, wiki, query, log):
             row = cursor.fetchone()
         cursor.close()
     except MySQLdb.Error as ex:
-        if ex.args[0] == 2013 or ex[0] == 1317:
+        if ex.args[0] == 2013 or ex.args[0] == 1317:
             # this means it has been shot (probably), in any case we don't care
             # 1317: Query execution was interrupted
             # 2013: Lost connection to MySQL server during query
@@ -72,10 +72,10 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
         (for loose values of 'while')
         '''
         if self.args['dryrun']:
-            self.log.info("would run %s", qutils.prettyprint_query(query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(query))
             return None
         self.log.info("running:")
-        self.log.info(qutils.prettyprint_query(query).encode('utf-8'))
+        self.log.info(qutils.prettyprint_query(query))
         thr = threading.Thread(target=async_query, args=(cursor, wiki, query, self.log))
         thr.start()
         return thr
@@ -91,10 +91,10 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
             cursor, _unused = self.dbinfo.get_cursor(host)
         query = 'SHOW PROCESSLIST;'
         if self.args['dryrun']:
-            self.log.info("would run %s", qutils.prettyprint_query(query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(query))
             return False
         self.log.info("running:")
-        self.log.info(qutils.prettyprint_query(query).encode('utf-8'))
+        self.log.info(qutils.prettyprint_query(query))
         try:
             cursor.execute(query.encode('utf-8'))
             result = cursor.fetchall()
@@ -116,23 +116,24 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
         '''
         explain_query = 'SHOW EXPLAIN FOR ' + thread_id + ';'
         if self.args['dryrun']:
-            self.log.info("would run %s", qutils.prettyprint_query(explain_query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(explain_query))
             return None, None
         self.log.info("running:")
-        self.log.info(qutils.prettyprint_query(explain_query).encode('utf-8'))
+        self.log.info(qutils.prettyprint_query(explain_query))
         try:
             cursor.execute(explain_query.encode('utf-8'))
             description = cursor.description
             explain_result = cursor.fetchall()
         except MySQLdb.Error as ex:
-            if ex.args[0] == 1933:
-                # 1933:Target is not running an EXPLAINable command, ie query is already complete
+            if ex.args[0] == 1933 or ex.args[0] == 1094:
+                # 1933:Target is not running an EXPLAINable command, i.e. query is already complete
+                # 1094:Unknown thread id, i.e. query is already complete
                 explain_result = None
                 description = None
             else:
-                raise MySQLdb.Error(("exception explaining query on wiki "
-                                     "{wiki} ({errno}:{message})".format(
-                                         wiki=wiki, errno=ex.args[0], message=ex.args[1])))
+                raise MySQLdb.Error("exception explaining query on wiki "
+                                    "{wiki} ({errno}:{message})".format(
+                                        wiki=wiki, errno=ex.args[0], message=ex.args[1])) from None
         return explain_result, description
 
     def kill(self, cursor, wiki, thread_id):
@@ -142,7 +143,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
         '''
         kill_query = 'KILL ' + thread_id
         if self.args['dryrun']:
-            self.log.info("would run %s", qutils.prettyprint_query(kill_query).encode('utf-8'))
+            self.log.info("would run %s", qutils.prettyprint_query(kill_query))
             return
 
         try:
@@ -151,10 +152,11 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
             self.log.info("result from kill: %s", kill_result)
         except MySQLdb.Error as ex:
             # 1094:Unknown thread id: <thread_id>
-            if ex[0] != 1094:
-                raise MySQLdb.Error(("exception killing query on wiki "
-                                     "{wiki} ({errno}:{message})".format(
-                                         wiki=wiki, errno=ex.args[0], message=ex.args[1])))
+            if ex.args[0] != 1094:
+                raise MySQLdb.Error(
+                    ("exception killing query on wiki "
+                     "{wiki} ({errno}:{message})".format(
+                         wiki=wiki, errno=ex.args[0], message=ex.args[1]))) from None
 
     def explain_and_kill(self, host, wiki, thread_id, query):
         '''
