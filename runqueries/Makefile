@@ -10,7 +10,7 @@ NAME_REVSPERPAGE = "Display revisions per page from a MediaWiki xml dump"
 
 PREFIX        ?= "/usr/local"
 BINDIR         = $(DESTDIR)$(PREFIX)/bin/
-DOCDIR         = $(DESTDIR)$(PREFIX)/share/doc/revsperpage/
+DOCDIR         = $(DESTDIR)$(PREFIX)/share/doc/querychecker/
 
 SHELL          = /bin/sh
 
@@ -26,11 +26,14 @@ install: revsperpage
 	install --directory                             $(DOCDIR)
 	install --mode=644   README                     $(DOCDIR)
 	install --mode=644   COPYING                    $(DOCDIR)
+	install --mode=644   DEPENDENCIES.txt           $(DOCDIR)
+	install --mode=644   sample*                    $(DOCDIR)
 
 uninstall:
 	rm -f $(BINDIR)revsperpage
 	rm -f $(DOCDIR)README
 	rm -f $(DOCDIR)COPYING
+	rm -f $(DOCDIR)sample*
 
 clean:
 	rm -f revsperpage.o revsperpage
