@@ -36,6 +36,122 @@ import queries.dbinfo as qdbinfo
 import queries.args as qargs
 
 
+class HostWikiGroups():
+    '''
+    methods for managing groups of hosts and/or wikis
+    with the same table descriptions
+    '''
+    @staticmethod
+    def get_grouped_hosts_one_wiki(table_descr_by_host_wiki, dbhosts, wiki):
+        '''
+        given table info for a list of dbhosts on the specified wiki,
+        group hosts according to the results
+        '''
+        groups = {}
+        for dbhost in dbhosts:
+            if dbhost in table_descr_by_host_wiki and wiki in table_descr_by_host_wiki[dbhost]:
+                if table_descr_by_host_wiki[dbhost][wiki] not in groups:
+                    groups[table_descr_by_host_wiki[dbhost][wiki]] = [dbhost]
+                else:
+                    groups[table_descr_by_host_wiki[dbhost][wiki]].append(dbhost)
+        return groups
+
+    @staticmethod
+    def group_hosts_across_wikis(table_descr_by_host_wiki, dbhosts, wikis):
+        '''
+        given table info for a list of dbhosts on specified wikis,
+        group hosts according to the results
+        a host may end up in more than one group if multiple wikis
+        are specified and host output varies across wikis.
+        example: host A has output outb on wiki b and output outc on wiki c
+        host B has output outd on wiki b and output outc on wikic
+        Then A and B will be in the same group for wiki b but a different
+         group for wiki c
+        '''
+        groups = {}
+        for wiki in wikis:
+            groups[wiki] = HostWikiGroups.get_grouped_hosts_one_wiki(
+                table_descr_by_host_wiki, dbhosts, wiki)
+        return groups
+
+    @staticmethod
+    def get_grouped_dbhosts(table_descr_by_host_wiki, dbhosts=None, wiki=None):
+        '''
+        given table descriptions for some hosts for a specified wiki,
+        return list of lists of hosts which have the same info
+        if wiki is not specified then info for all wikis will
+        be compared on the dbhosts; if dbhosts is not specified
+        then all dbs in the results will be grouped if they
+        have output for the specific wiki.
+        if neither are specified then all will be grouped; we
+        group a host according to output for each wiki, so it may
+        appear in more than one group in this case.
+        '''
+        groups = {}
+        if not dbhosts:
+            dbhosts = table_descr_by_host_wiki.keys()
+        if not wiki:
+            wikilists = [table_descr_by_host_wiki[dbhost].keys() for dbhost in dbhosts]
+            wikis = [wiki for wikis in wikilists for wiki in wikis]
+            groups = HostWikiGroups.group_hosts_across_wikis(
+                table_descr_by_host_wiki, dbhosts, wikis)
+        else:
+            groups = HostWikiGroups.group_hosts_across_wikis(
+                table_descr_by_host_wiki, dbhosts, [wiki])
+        return groups
+
+    @staticmethod
+    def get_groups_for_wikis(table_descr_by_wiki):
+        '''
+        given table descriptions for a dbhost's wikis, group together wikis that
+        have the same table description and return a dict of such groups against
+        the table description for each group
+        '''
+        groups = {}
+        for wiki in table_descr_by_wiki:
+            if table_descr_by_wiki[wiki] not in groups:
+                groups[table_descr_by_wiki[wiki]] = [wiki]
+            else:
+                groups[table_descr_by_wiki[wiki]].append(wiki)
+        return groups
+
+    @staticmethod
+    def get_grouped_wikis(table_descr_by_dbhost_wiki):
+        '''
+        given table descriptions for all dbhosts and all wikis on each
+        dbhost, for each dbhost group wikis together that
+        have the same table descriptions, and return a list
+        of such groups per dbhost
+        '''
+        groups = {}
+        dbhosts = table_descr_by_dbhost_wiki.keys()
+        for dbhost in dbhosts:
+            groups[dbhost] = HostWikiGroups.get_groups_for_wikis(table_descr_by_dbhost_wiki[dbhost])
+        return groups
+
+    @staticmethod
+    def get_matching_wikis(wiki, grouped_wikis_for_dbhost):
+        '''
+        given the wikis grouped by their table description for a dbhost,
+        return the group containing the specified wiki
+        '''
+        for table_descr in grouped_wikis_for_dbhost:
+            if wiki in grouped_wikis_for_dbhost[table_descr]:
+                return grouped_wikis_for_dbhost[table_descr]
+        return []
+
+    @staticmethod
+    def get_matching_hosts(host, hosts_by_result):
+        '''
+        given dbhosts by result for one wiki, return the list of dbhosts that
+        the specified host is in
+        '''
+        for table_descr in hosts_by_result:
+            if host in hosts_by_result[table_descr]:
+                return hosts_by_result[table_descr]
+        return []
+
+
 class TableDiffs():
     '''
     methods for comparing and displaying db table info
@@ -209,17 +325,6 @@ class TableDiffs():
             self.display_table_diffs(master_table_info[table],
                                      repl_table_info[table], table, wiki)
 
-    @staticmethod
-    def get_matching_hosts(host, hosts_by_result):
-        '''
-        given dbhosts by result for one wiki, return the list of dbhosts that
-        the specified host is in
-        '''
-        for table_descr in hosts_by_result:
-            if host in hosts_by_result[table_descr]:
-                return hosts_by_result[table_descr]
-        return []
-
     def display_diffs_master_per_sect(self, table_info_per_dbhost_wiki, table_descr_by_host_wiki):
         '''
         for each master on a section, get the wiki table
@@ -236,8 +341,8 @@ class TableDiffs():
                 print('wiki:', wiki)
                 self.display_table_info(table_info_per_dbhost_wiki[master][wiki])
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
-                grouped_dbhosts = self.get_grouped_dbhosts(table_descr_by_host_wiki,
-                                                           dbhosts_todo, wiki)
+                grouped_dbhosts = HostWikiGroups.get_grouped_dbhosts(table_descr_by_host_wiki,
+                                                                     dbhosts_todo, wiki)
                 done = []
                 self.dbinfo.log.info(
                     "hosts grouped by results for wiki: %s",
@@ -252,22 +357,12 @@ class TableDiffs():
                 for dbhost in dbhosts_todo:
                     if dbhost in done or dbhost == master:
                         continue
-                    same_result_hosts = self.get_matching_hosts(dbhost, grouped_dbhosts[wiki])
+                    same_result_hosts = HostWikiGroups.get_matching_hosts(
+                        dbhost, grouped_dbhosts[wiki])
                     print("common results for hosts:", same_result_hosts)
                     done.extend(same_result_hosts)
                     self.dbhost = dbhost
                     self.display_wikidb_diff(table_info_per_dbhost_wiki, wiki, master, None)
-
-    @staticmethod
-    def get_matching_wikis(wiki, grouped_wikis_for_dbhost):
-        '''
-        given the wikis grouped by their table description for a dbhost,
-        return the group containing the specified wiki
-        '''
-        for table_descr in grouped_wikis_for_dbhost:
-            if wiki in grouped_wikis_for_dbhost[table_descr]:
-                return grouped_wikis_for_dbhost[table_descr]
-        return []
 
     def display_diffs_master_all_sects(self, table_info_per_dbhost_wiki,
                                        table_descr_by_host_wiki, main_master, main_wiki):
@@ -290,7 +385,7 @@ class TableDiffs():
         if master_results:
             self.display_table_info(master_results[main_wiki])
 
-        grouped_wikis = self.get_grouped_wikis(table_descr_by_host_wiki)
+        grouped_wikis = HostWikiGroups.get_grouped_wikis(table_descr_by_host_wiki)
         wikis_done = {}
         masters = list(set(self.dbinfo.get_masters()))
         for section_master in masters:
@@ -298,7 +393,7 @@ class TableDiffs():
                 # this db (and so the whole section) did not have any of them
                 # wikis in our list to check
                 continue
-            grouped_dbhosts = self.get_grouped_dbhosts(table_descr_by_host_wiki)
+            grouped_dbhosts = HostWikiGroups.get_grouped_dbhosts(table_descr_by_host_wiki)
             self.log.info("db host groups by wiki results: %s",
                           [list(grouped_dbhosts[wiki].values()) for wiki in grouped_dbhosts])
             for wiki in table_info_per_dbhost_wiki[section_master]:
@@ -324,9 +419,10 @@ class TableDiffs():
                     if dbhost in wikis_done and wiki in wikis_done[dbhost]:
                         print("skipping", dbhost)
                         continue
-                    same_result_hosts = self.get_matching_hosts(dbhost, grouped_dbhosts[wiki])
+                    same_result_hosts = HostWikiGroups.get_matching_hosts(
+                        dbhost, grouped_dbhosts[wiki])
                     print("common results for hosts:", same_result_hosts)
-                    same_result_wikis = self.get_matching_wikis(
+                    same_result_wikis = HostWikiGroups.get_matching_wikis(
                         wiki, grouped_wikis[dbhost])
                     # don't display diffs for other wikis for dbhosts with the
                     # same table description
@@ -366,93 +462,6 @@ class TableDiffs():
         else:
             self.display_diffs_master_per_sect(table_info_per_dbhost_wiki,
                                                table_descr_by_host_wiki)
-
-    @staticmethod
-    def get_grouped_hosts_one_wiki(table_descr_by_host_wiki, dbhosts, wiki):
-        '''
-        given table info for a list of dbhosts on the specified wiki,
-        group hosts according to the results
-        '''
-        groups = {}
-        for dbhost in dbhosts:
-            if dbhost in table_descr_by_host_wiki and wiki in table_descr_by_host_wiki[dbhost]:
-                if table_descr_by_host_wiki[dbhost][wiki] not in groups:
-                    groups[table_descr_by_host_wiki[dbhost][wiki]] = [dbhost]
-                else:
-                    groups[table_descr_by_host_wiki[dbhost][wiki]].append(dbhost)
-        return groups
-
-    @staticmethod
-    def group_hosts_across_wikis(table_descr_by_host_wiki, dbhosts, wikis):
-        '''
-        given table info for a list of dbhosts on specified wikis,
-        group hosts according to the results
-        a host may end up in more than one group if multiple wikis
-        are specified and host output varies across wikis.
-        example: host A has output outb on wiki b and output outc on wiki c
-        host B has output outd on wiki b and output outc on wikic
-        Then A and B will be in the same group for wiki b but a different
-         group for wiki c
-        '''
-        groups = {}
-        for wiki in wikis:
-            groups[wiki] = TableDiffs.get_grouped_hosts_one_wiki(
-                table_descr_by_host_wiki, dbhosts, wiki)
-        return groups
-
-    @staticmethod
-    def get_grouped_dbhosts(table_descr_by_host_wiki, dbhosts=None, wiki=None):
-        '''
-        given table descriptions for some hosts for a specified wiki,
-        return list of lists of hosts which have the same info
-        if wiki is not specified then info for all wikis will
-        be compared on the dbhosts; if dbhosts is not specified
-        then all dbs in the results will be grouped if they
-        have output for the specific wiki.
-        if neither are specified then all will be grouped; we
-        group a host according to output for each wiki, so it may
-        appear in more than one group in this case.
-        '''
-        groups = {}
-        if not dbhosts:
-            dbhosts = table_descr_by_host_wiki.keys()
-        if not wiki:
-            wikilists = [table_descr_by_host_wiki[dbhost].keys() for dbhost in dbhosts]
-            wikis = [wiki for wikis in wikilists for wiki in wikis]
-            groups = TableDiffs.group_hosts_across_wikis(table_descr_by_host_wiki, dbhosts, wikis)
-        else:
-            groups = TableDiffs.group_hosts_across_wikis(
-                table_descr_by_host_wiki, dbhosts, [wiki])
-        return groups
-
-    @staticmethod
-    def get_groups_for_wikis(table_descr_by_wiki):
-        '''
-        given table descriptions for a dbhost's wikis, group together wikis that
-        have the same table description and return a dict of such groups against
-        the table description for each group
-        '''
-        groups = {}
-        for wiki in table_descr_by_wiki:
-            if table_descr_by_wiki[wiki] not in groups:
-                groups[table_descr_by_wiki[wiki]] = [wiki]
-            else:
-                groups[table_descr_by_wiki[wiki]].append(wiki)
-        return groups
-
-    @staticmethod
-    def get_grouped_wikis(table_descr_by_dbhost_wiki):
-        '''
-        given table descriptions for all dbhosts and all wikis on each
-        dbhost, for each dbhost group wikis together that
-        have the same table descriptions, and return a list
-        of such groups per dbhost
-        '''
-        groups = {}
-        dbhosts = table_descr_by_dbhost_wiki.keys()
-        for dbhost in dbhosts:
-            groups[dbhost] = TableDiffs.get_groups_for_wikis(table_descr_by_dbhost_wiki[dbhost])
-        return groups
 
 
 class TableGetter():
