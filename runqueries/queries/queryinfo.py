@@ -5,8 +5,6 @@ some wikis, etc
 """
 
 
-import logging
-import logging.config
 import re
 import warnings
 import MySQLdb
@@ -22,12 +20,7 @@ class QueryInfo():
 
     def __init__(self, args):
         self.args = args
-        qlogger.logging_setup(args['logfile'])
-        if self.args['verbose'] or self.args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.log = qlogger.get_logger(args)
         warnings.filterwarnings("ignore", category=MySQLdb.Warning)
         self.settings = qutils.get_settings_from_yaml(self.args['yamlfile'])
         self.queries = qutils.get_queries_from_file(self.args['queryfile'])

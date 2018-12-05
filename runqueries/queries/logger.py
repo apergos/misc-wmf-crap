@@ -52,3 +52,16 @@ def logging_setup(logfile):
             }
         }
     })
+
+
+def get_logger(args):
+    '''
+    return a logger which will log to the right file
+    at the right verbosity
+    '''
+    logging_setup(args['logfile'])
+    if args['verbose'] or args['dryrun']:
+        log_type = 'verbose'
+    else:
+        log_type = 'normal'
+    return logging.getLogger(log_type)    # pylint: disable=invalid-name

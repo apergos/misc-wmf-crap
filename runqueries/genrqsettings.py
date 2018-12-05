@@ -31,7 +31,6 @@ Yes, it's gross. Too bad.
 import sys
 import getopt
 import json
-import logging
 from subprocess import Popen, PIPE, SubprocessError
 import queries.utils as qutils
 import queries.dbinfo as qdbinfo
@@ -49,12 +48,7 @@ class QueryRunner():
     '''
     def __init__(self, args):
         self.args = args
-        qlogger.logging_setup(self.args['logfile'])
-        if self.args['verbose'] or self.args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.log = qlogger.get_logger(args)
         self.multiversion = self.check_if_multiversion()
 
     def get_page_info(self, pageid):
@@ -190,12 +184,7 @@ class RevCounter():
 
     def __init__(self, args):
         self.args = args
-        qlogger.logging_setup(self.args['logfile'])
-        if self.args['verbose'] or self.args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.log = qlogger.get_logger(args)
 
     def get_biggest_page_info(self):
         '''

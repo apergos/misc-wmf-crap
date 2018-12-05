@@ -24,8 +24,6 @@ table descriptions derived from table info vars.
 import os
 import sys
 import getopt
-import logging
-import logging.config
 import json
 import copy
 from collections import OrderedDict
@@ -159,12 +157,7 @@ class TableDiffs():
     def __init__(self, args, dbinfo):
         self.args = args
         self.dbinfo = dbinfo
-        qlogger.logging_setup(self.args['logfile'])
-        if self.args['verbose'] or self.args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.log = qlogger.get_logger(args)
         # these are set in display_wikidb_diff as needed
         self.wiki = None
         self.dbhost = None
@@ -471,12 +464,7 @@ class TableGetter():
     def __init__(self, args, dbinfo):
         self.args = args
         self.dbinfo = dbinfo
-        qlogger.logging_setup(args['logfile'])
-        if self.args['verbose'] or self.args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.log = qlogger.get_logger(args)
         self.tablediffs = TableDiffs(self.args, self.dbinfo)
 
     @staticmethod

@@ -4,7 +4,6 @@ manage db server config info
 """
 
 
-import logging
 import sys
 from subprocess import Popen, PIPE, SubprocessError
 import json
@@ -21,12 +20,7 @@ class DbInfo():
     are managed here
     '''
     def __init__(self, args):
-        qlogger.logging_setup(args['logfile'])
-        if args['verbose'] or args['dryrun']:
-            log_type = 'verbose'
-        else:
-            log_type = 'normal'
-        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
+        self.log = qlogger.get_logger(args)
         self.args = args
         self.args['dbhosts'], self.wikis_to_sections, self.dbhosts_by_section = self.setup_dbhosts()
         self.dbcreds = self.get_dbcreds()
