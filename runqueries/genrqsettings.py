@@ -31,10 +31,12 @@ Yes, it's gross. Too bad.
 import sys
 import getopt
 import json
+import logging
 from subprocess import Popen, PIPE
 import queries.utils as qutils
 import queries.dbinfo as qdbinfo
 import queries.args as qargs
+import queries.logger as qlogger
 
 
 # SSH = '/usr/bin/ssh'
@@ -47,6 +49,12 @@ class QueryRunner():
     '''
     def __init__(self, config):
         self.config = config
+        qlogger.logging_setup(self.config['logfile'])
+        if self.config['verbose'] or self.config['dryrun']:
+            log_type = 'verbose'
+        else:
+            log_type = 'normal'
+        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
         self.multiversion = self.check_if_multiversion()
 
     def get_page_info(self, pageid):
@@ -57,7 +65,7 @@ class QueryRunner():
         url = api_url_base + "?action=query&pageids={pageid}&format=json".format(
             pageid=pageid.decode('utf-8'))
         command = ["/usr/bin/curl", "-s", url]
-        if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
+        if not display_command_info(command, self.config['dryrun'], self.log):
             return '0', 'MainPage'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -86,7 +94,7 @@ class QueryRunner():
         mw_script_location = qutils.get_mwscript_path(self.config)
         remote_command = ['/bin/ls', mw_script_location]
         command = qutils.build_command(remote_command, ssh_host=self.config['mwhost'])
-        if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
+        if not display_command_info(command, self.config['dryrun'], self.log):
             return ''
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -113,7 +121,7 @@ class QueryRunner():
         command = qutils.build_command(
             subcommand, ssh_host=self.config['mwhost'], sudo_user=self.config['sudouser'],
             mwscript=mwscript, php=self.config['php'])
-        if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
+        if not display_command_info(command, self.config['dryrun'], self.log):
             return 'http://example.com/w/api.php'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -159,7 +167,7 @@ class QueryRunner():
             subcommand, ssh_host=self.config['mwhost'], sudo_user=self.config['sudouser'],
             mwscript=mw_script_location, php=self.config['php'])
         command = ["echo", "'{query}'".format(query=query), '|'] + remote_mysql_command
-        if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
+        if not display_command_info(command, self.config['dryrun'], self.log):
             return b'0'
 
         command = " ".join(command)
@@ -185,6 +193,12 @@ class RevCounter():
 
     def __init__(self, config):
         self.config = config
+        qlogger.logging_setup(self.config['logfile'])
+        if self.config['verbose'] or self.config['dryrun']:
+            log_type = 'verbose'
+        else:
+            log_type = 'normal'
+        self.log = logging.getLogger(log_type)    # pylint: disable=invalid-name
 
     def get_biggest_page_info(self):
         '''
@@ -205,7 +219,7 @@ class RevCounter():
         remote_command = ["/bin/ls", "{dumpsdir}/{wiki}".format(
             dumpsdir=self.config['dumpsdir'], wiki=self.config['wikidb'])]
         command = qutils.build_command(remote_command, ssh_host=self.config['dumpshost'])
-        if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
+        if not display_command_info(command, self.config['dryrun'], self.log):
             return b'99999999'
 
         command = " ".join(command)
@@ -243,7 +257,7 @@ class RevCounter():
             "head", "-1'"
         ]
         command = qutils.build_command(remote_command, ssh_host=self.config['dumpshost'])
-        if not display_command_info(command, self.config['dryrun'], self.config['verbose']):
+        if not display_command_info(command, self.config['dryrun'], self.log):
             return b'0', b'0'
 
         command = " ".join(command)
@@ -351,7 +365,7 @@ def run(config):
     display(namespace, title, bigpage_id, revid, startpage, endpage, section, config['wikidb'])
 
 
-def display_command_info(command, dryrun, verbose):
+def display_command_info(command, dryrun, log):
     '''
     print the appropriate info message for the command that will or would
     be run, returning True if the command is to be run
@@ -361,10 +375,9 @@ def display_command_info(command, dryrun, verbose):
     else:
         printable_cmd = command
     if dryrun:
-        print("would run command:", printable_cmd)
+        log.info("would run command: %s", printable_cmd)
         return False
-    if verbose:
-        print("running command:", printable_cmd)
+    log.info("running command: %s", printable_cmd)
     return True
 
 

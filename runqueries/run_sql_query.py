@@ -31,12 +31,11 @@ class RunQueryInfo(qqueryinfo.QueryInfo):
         self.dbinfo.do_use_wiki(cursor, wiki)
         if self.args['dryrun']:
             for query in queries:
-                print("would run", qutils.prettyprint_query(query))
+                self.log.info("would run %s", qutils.prettyprint_query(query))
             return
         for query in queries:
-            if self.args['verbose']:
-                print("running:")
-                print(qutils.prettyprint_query(query))
+            self.log.info("running:")
+            self.log.info(qutils.prettyprint_query(query))
             # be nice to the servers
             time.sleep(0.05)
             try:

@@ -238,9 +238,9 @@ class TableDiffs():
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 grouped_dbhosts = self.get_grouped_dbhosts(flattened, dbhosts_todo, wiki)
                 done = []
-                if self.dbinfo.args['verbose']:
-                    print("hosts grouped by results for wiki:",
-                          [grouped_dbhosts[wiki].values() for wiki in grouped_dbhosts])
+                self.dbinfo.log.info(
+                    "hosts grouped by results for wiki: %s",
+                    " ".join([grouped_dbhosts[wiki].values() for wiki in grouped_dbhosts]))
                 for dbhost in dbhosts_todo:
                     if dbhost in done or dbhost == master:
                         continue
