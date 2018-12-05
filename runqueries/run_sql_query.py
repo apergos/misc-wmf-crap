@@ -70,13 +70,15 @@ and wiki dbs. The results are written to stdout.
 
 """
     usage_formats = qargs.get_common_arg_docs(['formats'])
+    usage_output = qargs.get_common_arg_docs(['output'])
     usage_args = """
 Arguments:
 """
     usage_common = qargs.get_common_arg_docs(['yamlfile', 'queryfile', 'settings'])
     usage_flags = qargs.get_common_arg_docs(['flags'])
 
-    sys.stderr.write(usage_message + usage_formats + usage_args + usage_common + usage_flags)
+    sys.stderr.write(usage_message + usage_formats + usage_output +
+                     usage_args + usage_common + usage_flags)
     sys.exit(1)
 
 

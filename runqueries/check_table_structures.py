@@ -662,6 +662,8 @@ replicas agains the master in each case.
 
 It also writes out the version of mysql/mariadb for each db server.
 
+"""
+    usage_args = """
 Options:
     --dbhosts   (-H)   List of db hostnames, comma-separated
                        If such a list is provided, it will be presumed that all wikidbs
@@ -686,10 +688,11 @@ Options:
     --wikilist  (-l)   List of wiki db names, comma-separated
                        Default: none, read list from file
 """
+    usage_output = qargs.get_common_arg_docs(['output'])
     usage_common = qargs.get_common_arg_docs(['settings'])
     usage_flags = qargs.get_common_arg_docs(['flags'])
 
-    sys.stderr.write(usage_message + usage_common + usage_flags)
+    sys.stderr.write(usage_message + usage_output + usage_args + usage_common + usage_flags)
     sys.exit(1)
 
 

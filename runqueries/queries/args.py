@@ -81,6 +81,18 @@ Variable names must correspond to the variables in the query file, although
 they may be in any case. See sample-settings.yaml for an example. The file
 sample-explain-settings.yaml has the exact same format but fewer entries for
 (my) testing convenience.
+
+"""
+
+doc['output'] = """
+Output:
+
+With verbose mode enabled, all logging messages get written to a file.
+
+All errors or warnings are written to stderr, in addition to possibly being
+logged to a file (see above).
+
+All regular output from the script is written to stdout.
 """
 
 

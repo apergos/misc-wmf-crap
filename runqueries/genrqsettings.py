@@ -321,14 +321,18 @@ that runs show explain for given queries on certain dbs.
 
 See the sample-genrq.conf for an example config file.
 
+"""
+    usage_args = """
 Arguments:
     --wikidb     (-w)   Name of wiki database (e.g. enwiki) for which to generate
                         show explain query config data
                         default: none
 """
+    usage_output = qargs.get_common_arg_docs(['output'])
     usage_common = qargs.get_common_arg_docs(['settings'])
     usage_flags = qargs.get_common_arg_docs(['flags'])
-    sys.stderr.write(usage_message + usage_common + usage_flags)
+    sys.stderr.write(usage_message + usage_output + usage_args +
+                     usage_common + usage_flags)
     sys.exit(1)
 
 

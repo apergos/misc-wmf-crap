@@ -235,22 +235,15 @@ and wiki dbs. The results are written to stdout.
 
 """
     usage_formats = qargs.get_common_arg_docs(['formats'])
+    usage_output = qargs.get_common_arg_docs(['output'])
     usage_args = """
-Output:
-
-With verbose mode enabled, all logging messages get written to a file.
-
-All errors or warnings are written to stderr, in addition to possibly being
-logged to a file (see above).
-
-All regular output from the script is written to stdout.
-
 Arguments:
 """
     usage_common = qargs.get_common_arg_docs(['yamlfile', 'queryfile', 'settings'])
     usage_flags = qargs.get_common_arg_docs(['flags'])
 
-    sys.stderr.write(usage_message + usage_formats + usage_args + usage_common + usage_flags)
+    sys.stderr.write(usage_message + usage_formats + usage_output +
+                     usage_args + usage_common + usage_flags)
     sys.exit(1)
 
 
