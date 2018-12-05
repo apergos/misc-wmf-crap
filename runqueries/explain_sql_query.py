@@ -13,13 +13,10 @@ and db cursor.
 
 
 # TODOs:
-# * check other exceptions that can be raised
-#   by mysql calls, see what we overlooked
 # * consider what happens in worst case scenarios
 #   - network goes away in the middle of a run
 #     leaving the server still running its query
 #   - other?
-# * make log file name configurable?
 
 
 import getopt

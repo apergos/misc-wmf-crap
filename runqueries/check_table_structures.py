@@ -505,7 +505,7 @@ class TableGetter():
         return flattened
 
     @staticmethod
-    def format_create_table_info(sql_results):
+    def format_create_table_info(sql_results, log):
         '''
         given output from a SHOW CREATE TABLE query,
         format it into a nice dict and return that
@@ -516,7 +516,7 @@ class TableGetter():
         lines = [line.strip(' ').rstrip(',') for line in lines]
         # CREATE TABLE `blah` (
         if not lines[0].startswith("CREATE TABLE "):
-            # bad result somehow FIXME log this
+            log.error("CREATE_TABLE returned unexpected result", sql_results)
             return {}
         formatted['table'] = lines[0][14:-3]
         formatted['columns'] = OrderedDict()
@@ -611,7 +611,7 @@ class TableGetter():
         results = self.run_table_query(wiki, dbcursor, querystr)
         if not results:
             return {}
-        return self.format_create_table_info(results)
+        return self.format_create_table_info(results, self.log)
 
     def show_tables_for_wikis(self, wikilist, main_master, main_wiki):
         '''
