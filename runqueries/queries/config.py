@@ -18,7 +18,7 @@ def config_setup(configfile):
     '''
     defaults = get_config_defaults()
     conf = configparser.ConfigParser(defaults)
-    if configfile is None:
+    if not configfile:
         settings = defaults
     else:
         conf.read(configfile)

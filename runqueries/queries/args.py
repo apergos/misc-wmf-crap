@@ -5,6 +5,7 @@ common arg handling and messages
 
 
 import queries.config as qconfig
+import os
 
 
 def get_flag(opt, args, usage):
@@ -129,7 +130,12 @@ def handle_common_args(options, args, usage, remainder, mandatory, get_opt):
     if remainder:
         usage("Unknown option(s) specified: <{opt}>".format(opt=remainder[0]))
 
-    configfile = args.get('settings')
+    configfile = args.get('settings', None)
+    if not configfile:
+        usage("No configuration file specified")
+    if not os.path.exists(configfile):
+        usage("No such configuration file {cfile}".format(cfile=configfile))
+
     conf = qconfig.config_setup(configfile)
     for setting in qconfig.SETTINGS:
         if setting not in args:
