@@ -240,7 +240,7 @@ class DbInfo():
                 "{host}:{port}, {errno}:{message}".format(
                     host=host, port=port, errno=ex.args[0], message=ex.args[1])) from None
 
-    def do_use_wiki(self, cursor, wiki, lost_conn_ok=False):
+    def do_use_wiki(self, wiki, cursor, lost_conn_ok=False):
         '''
         does a simple 'USE wikidbname'. That is all.
         returns True on success, False for dryrun, None for lost conn,

@@ -4,8 +4,8 @@ common arg handling and messages
 """
 
 
-import queries.config as qconfig
 import os
+import queries.config as qconfig
 
 
 def get_flag(opt, args, usage):

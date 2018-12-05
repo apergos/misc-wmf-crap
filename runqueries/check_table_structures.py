@@ -524,7 +524,7 @@ class TableInfo():
         formatted['parameters'] = [line for line in lines if line.startswith(')')]
         return formatted
 
-    def check_version(self, dbcursor, dbhost):
+    def check_version(self, dbhost, dbcursor):
         '''
         get the version of mysql. hey, it might differ, no?
         '''
@@ -550,7 +550,7 @@ class TableInfo():
         collect and return output for show create table for:
         page, revision, text, comment (if there), actor (if there)
         '''
-        if self.dbinfo.do_use_wiki(dbcursor, wiki, lost_conn_ok=True) is None:
+        if self.dbinfo.do_use_wiki(wiki, dbcursor, lost_conn_ok=True) is None:
             return {}
         tables = {}
         for table in self.args['tables']:
@@ -628,7 +628,7 @@ class TableInfo():
                 if not dbcursor:
                     # problem host, move on
                     continue
-            self.check_version(dbcursor, dbhost)
+            self.check_version(dbhost, dbcursor)
             self.log.info("for dbhost %s checking wikis %s", dbhost, ','.join(wikis_todo))
             for wiki in wikis_todo:
                 # for hacky testing situations (reusing the same host

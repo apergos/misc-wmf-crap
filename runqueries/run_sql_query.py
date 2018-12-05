@@ -21,14 +21,14 @@ class RunQueryInfo(qqueryinfo.QueryInfo):
     '''
     munge and run queries on db servers for specific wikis
     '''
-    def run_on_wiki(self, cursor, host, wiki, wiki_settings):
+    def run_on_wiki(self, host, wiki, cursor, wiki_settings):
         '''
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
         '''
         print("wiki:", wiki)
         queries = self.fillin_query_template(wiki_settings)
-        self.dbinfo.do_use_wiki(cursor, wiki)
+        self.dbinfo.do_use_wiki(wiki, cursor)
         if self.args['dryrun']:
             for query in queries:
                 self.log.info("would run %s", qutils.prettyprint_query(query))

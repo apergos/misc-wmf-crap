@@ -14,27 +14,27 @@ MWSCRIPT = 'MWScript.php'
 SSH = '/home/ariel/bin/sshes'
 
 
-def get_mwscript_path(config):
+def get_mwscript_path(args):
     '''
     return the path to the multiversion script or at least where it would be
     '''
-    return os.path.join(config['multiversion'], MWSCRIPT)
+    return os.path.join(args['multiversion'], MWSCRIPT)
 
 
-def get_maint_script_path(config, maint_script_basename):
+def get_maint_script_path(args, maint_script_basename):
     '''
     if we are using a multiversion setup, return the path to mwscript and the
     unaltered maintenance script path
     if we are not, return None for mwscript and an adjusted path for the maint
     script
     '''
-    if config['multiversion']:
-        mw_script_location = get_mwscript_path(config)
+    if args['multiversion']:
+        mw_script_location = get_mwscript_path(args)
         maint_script_cmd = maint_script_basename
     else:
         mw_script_location = None
         maint_script_cmd = "{repo}/maintenance/{script}".format(
-            repo=config['mwrepo'], script=maint_script_basename)
+            repo=args['mwrepo'], script=maint_script_basename)
     return mw_script_location, maint_script_cmd
 
 

@@ -47,10 +47,10 @@ class QueryRunner():
     '''
     run various db queries or collect info to run them
     '''
-    def __init__(self, config):
-        self.config = config
-        qlogger.logging_setup(self.config['logfile'])
-        if self.config['verbose'] or self.config['dryrun']:
+    def __init__(self, args):
+        self.args = args
+        qlogger.logging_setup(self.args['logfile'])
+        if self.args['verbose'] or self.args['dryrun']:
             log_type = 'verbose'
         else:
             log_type = 'normal'
@@ -65,7 +65,7 @@ class QueryRunner():
         url = api_url_base + "?action=query&pageids={pageid}&format=json".format(
             pageid=pageid.decode('utf-8'))
         command = ["/usr/bin/curl", "-s", url]
-        if not display_command_info(command, self.config['dryrun'], self.log):
+        if not display_command_info(command, self.args['dryrun'], self.log):
             return '0', 'MainPage'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -90,10 +90,10 @@ class QueryRunner():
         '''
         see if the multiversion script exists on the mw host
         '''
-        mw_script_location = qutils.get_mwscript_path(self.config)
+        mw_script_location = qutils.get_mwscript_path(self.args)
         remote_command = ['/bin/ls', mw_script_location]
-        command = qutils.build_command(remote_command, ssh_host=self.config['mwhost'])
-        if not display_command_info(command, self.config['dryrun'], self.log):
+        command = qutils.build_command(remote_command, ssh_host=self.args['mwhost'])
+        if not display_command_info(command, self.args['dryrun'], self.log):
             return ''
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -110,24 +110,24 @@ class QueryRunner():
         '''
         maintenance_script = "getConfiguration.php"
         mwscript, maint_script_path = qutils.get_maint_script_path(
-            self.config, maintenance_script)
+            self.args, maintenance_script)
         subcommand = [maint_script_path]
         pull_vars = ["wgCanonicalServer", "wgScriptPath"]
         subcommand.extend([
-            "--wiki={dbname}".format(dbname=self.config['wikidb']),
+            "--wiki={dbname}".format(dbname=self.args['wikidb']),
             "--format=json", "--regex={vars}".format(vars="|".join(pull_vars))])
 
         command = qutils.build_command(
-            subcommand, ssh_host=self.config['mwhost'], sudo_user=self.config['sudouser'],
-            mwscript=mwscript, php=self.config['php'])
-        if not display_command_info(command, self.config['dryrun'], self.log):
+            subcommand, ssh_host=self.args['mwhost'], sudo_user=self.args['sudouser'],
+            mwscript=mwscript, php=self.args['php'])
+        if not display_command_info(command, self.args['dryrun'], self.log):
             return 'http://example.com/w/api.php'
 
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         # ignore stuff like "Warning: rename(/tmp/...) permission denied
         if error and not error.startswith(b'Warning'):
-            raise SubprocessError("Errors encountered: {error}".format(error.decode('utf-8')))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         try:
             settings = json.loads(output.decode('utf-8'))
         except ValueError:
@@ -136,7 +136,7 @@ class QueryRunner():
             raise ValueError(
                 "Failed to get values for wgCanonicalServer, " +
                 "wgScriptPath for {wiki}, got output {output}".format(
-                    wiki=self.config['wikidb'], output=output))
+                    wiki=self.args['wikidb'], output=output))
 
         wgcanonserver = settings['wgCanonicalServer']
         wgscriptpath = settings['wgScriptPath']
@@ -153,30 +153,30 @@ class QueryRunner():
         '''
         maintenance_script = "mysql.php"
         mw_script_location, maint_script_path = qutils.get_maint_script_path(
-            self.config, maintenance_script)
+            self.args, maintenance_script)
         subcommand = [maint_script_path]
-        subcommand.extend(["--wiki={dbname}".format(dbname=self.config['wikidb']),
-                           "--wikidb={dbname}".format(dbname=self.config['wikidb']),
+        subcommand.extend(["--wiki={dbname}".format(dbname=self.args['wikidb']),
+                           "--wikidb={dbname}".format(dbname=self.args['wikidb']),
                            "--group=vslow", "--", "--silent"])
         query = ("select rev_id from revision where " +
                  "rev_page={pageid} order by rev_id desc limit 1 offset {revcounthalf};".format(
                      pageid=pageid.decode('utf-8'), revcounthalf=int(int(revcount)/2 + 1)))
         remote_mysql_command = qutils.build_command(
-            subcommand, ssh_host=self.config['mwhost'], sudo_user=self.config['sudouser'],
-            mwscript=mw_script_location, php=self.config['php'])
+            subcommand, ssh_host=self.args['mwhost'], sudo_user=self.args['sudouser'],
+            mwscript=mw_script_location, php=self.args['php'])
         command = ["echo", "'{query}'".format(query=query), '|'] + remote_mysql_command
-        if not display_command_info(command, self.config['dryrun'], self.log):
+        if not display_command_info(command, self.args['dryrun'], self.log):
             return b'0'
 
         command = " ".join(command)
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error and not error.startswith(b"Warning:"):
-            raise SubprocessError("Errors encountered: {error}".format(error.decode('utf-8')))
+            raise SubprocessError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         revid = output.rstrip(b'\n')
         if not revid:
             raise ValueError("Failed to get midpoint revid for {wiki}".format(
-                wiki=self.config['wikidb']))
+                wiki=self.args['wikidb']))
         return revid
 
 
@@ -188,10 +188,10 @@ class RevCounter():
     '''
     REVCUTOFF = 10000
 
-    def __init__(self, config):
-        self.config = config
-        qlogger.logging_setup(self.config['logfile'])
-        if self.config['verbose'] or self.config['dryrun']:
+    def __init__(self, args):
+        self.args = args
+        qlogger.logging_setup(self.args['logfile'])
+        if self.args['verbose'] or self.args['dryrun']:
             log_type = 'verbose'
         else:
             log_type = 'normal'
@@ -214,9 +214,9 @@ class RevCounter():
         and ought to hear about it in any case
         '''
         remote_command = ["/bin/ls", "{dumpsdir}/{wiki}".format(
-            dumpsdir=self.config['dumpsdir'], wiki=self.config['wikidb'])]
-        command = qutils.build_command(remote_command, ssh_host=self.config['dumpshost'])
-        if not display_command_info(command, self.config['dryrun'], self.log):
+            dumpsdir=self.args['dumpsdir'], wiki=self.args['wikidb'])]
+        command = qutils.build_command(remote_command, ssh_host=self.args['dumpshost'])
+        if not display_command_info(command, self.args['dryrun'], self.log):
             return b'99999999'
 
         command = " ".join(command)
@@ -232,7 +232,7 @@ class RevCounter():
             return entries[-2]
         except Exception:
             raise ValueError("Errors encountered getting run dates for {wiki} dumps:".format(
-                wiki=self.config['wikidb'])) from None
+                wiki=self.args['wikidb'])) from None
 
     def get_pageid_revcount(self, rundate):
         '''
@@ -243,7 +243,7 @@ class RevCounter():
         remote_command = [
             "'/bin/zcat",
             "{dumpsdir}/{wiki}/{rundate}/{wiki}-{rundate}-stub-meta-history.xml.gz".format(
-                dumpsdir=self.config['dumpsdir'], wiki=self.config['wikidb'],
+                dumpsdir=self.args['dumpsdir'], wiki=self.args['wikidb'],
                 rundate=rundate.decode('utf-8')),
             "|",
             "/usr/local/bin/revsperpage", "all", str(self.REVCUTOFF),
@@ -252,8 +252,8 @@ class RevCounter():
             "|",
             "head", "-1'"
         ]
-        command = qutils.build_command(remote_command, ssh_host=self.config['dumpshost'])
-        if not display_command_info(command, self.config['dryrun'], self.log):
+        command = qutils.build_command(remote_command, ssh_host=self.args['dumpshost'])
+        if not display_command_info(command, self.args['dryrun'], self.log):
             return b'0', b'0'
 
         command = " ".join(command)
@@ -338,32 +338,32 @@ Arguments:
     sys.exit(1)
 
 
-def get_section(config):
+def get_section(args):
     '''
     dig the section that the wikidb lives on out of the db config settings
     return it; it might be 'DEFAULT' but this is ok
     '''
-    dbinfo = qdbinfo.DbInfo(config)
-    _dbs, sections_by_db, _section_loads = dbinfo.get_dbhosts(config['wikidb'])
-    if config['wikidb'] not in sections_by_db:
+    dbinfo = qdbinfo.DbInfo(args)
+    _dbs, sections_by_db, _section_loads = dbinfo.get_dbhosts(args['wikidb'])
+    if args['wikidb'] not in sections_by_db:
         return 'DEFAULT'
-    return sections_by_db[config['wikidb']]
+    return sections_by_db[args['wikidb']]
 
 
-def run(config):
+def run(args):
     '''
-    given the config and the wiki database name,
+    given the args and the wiki database name,
     get all the values we need for a config stanza for
     the show explain script and write out a sample stanza
     '''
-    revcounter = RevCounter(config)
+    revcounter = RevCounter(args)
     bigpage_id, revcount = revcounter.get_biggest_page_info()
-    qrunner = QueryRunner(config)
+    qrunner = QueryRunner(args)
     namespace, title = qrunner.get_page_info(bigpage_id)
     revid = qrunner.get_midpoint_revid(bigpage_id, revcount)
     startpage, endpage = get_start_end_pageids(int(bigpage_id))
-    section = get_section(config)
-    display(namespace, title, bigpage_id, revid, startpage, endpage, section, config['wikidb'])
+    section = get_section(args)
+    display(namespace, title, bigpage_id, revid, startpage, endpage, section, args['wikidb'])
 
 
 def display_command_info(command, dryrun, log):

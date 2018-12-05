@@ -61,7 +61,7 @@ class QueryInfo():
         return querytexts
 
     # Implement in subclass!
-    def run_on_wiki(self, cursor, host, wiki, wiki_settings):
+    def run_on_wiki(self, host, wiki, cursor, wiki_settings):
         '''
         run all queries for a specific wiki, after filling in the
         query template; this assumes an initialized db cursor
@@ -79,7 +79,7 @@ class QueryInfo():
             cursor, _unused = self.dbinfo.get_cursor(host)
         qutils.print_and_log(self.log, "*** HOST: {host}".format(host=host))
         for wiki in wikis_info:
-            self.run_on_wiki(cursor, host, wiki, wikis_info[wiki])
+            self.run_on_wiki(host, wiki, cursor, wikis_info[wiki])
         if keep_cursor and not self.args['dryrun']:
             cursor.close()
 

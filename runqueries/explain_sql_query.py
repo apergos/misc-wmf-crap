@@ -32,7 +32,7 @@ import queries.queryinfo as qqueryinfo
 import queries.args as qargs
 
 
-def async_query(cursor, wiki, query, log):
+def async_query(wiki, cursor, query, log):
     '''
     meant to be run as a thread, execute a query via the specified cursor,
     don't bother to return the results, just read and throw them away
@@ -65,7 +65,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
     munge and run queries on db servers for specific wikis, doing a show
     explain on each one as it runs, then shooting it
     '''
-    def start_query(self, cursor, wiki, query):
+    def start_query(self, wiki, cursor, query):
         '''
         runs the passed query via the specified cursor, in a separate
         thread, so we can do other things while it's running
@@ -76,7 +76,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
             return None
         self.log.info("running:")
         self.log.info(qutils.prettyprint_query(query))
-        thr = threading.Thread(target=async_query, args=(cursor, wiki, query, self.log))
+        thr = threading.Thread(target=async_query, args=(wiki, cursor, query, self.log))
         thr.start()
         return thr
 
@@ -109,7 +109,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
                 return True
         return False
 
-    def explain(self, cursor, wiki, thread_id):
+    def explain(self, wiki, cursor, thread_id):
         '''
         show explain for a given thread id, given an
         initialized db cursor
@@ -136,7 +136,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
                                         wiki=wiki, errno=ex.args[0], message=ex.args[1])) from None
         return explain_result, description
 
-    def kill(self, cursor, wiki, thread_id):
+    def kill(self, wiki, cursor, thread_id):
         '''
         given a db cursor and a thread id, attempt to kill
         the thread and deal with errors
@@ -169,8 +169,8 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
         else:
             cursor, _unused = self.dbinfo.get_cursor(host)
 
-        explain_result, description = self.explain(cursor, wiki, thread_id)
-        self.kill(cursor, wiki, thread_id)
+        explain_result, description = self.explain(wiki, cursor, thread_id)
+        self.kill(wiki, cursor, thread_id)
         qutils.print_and_log(self.log, "*** QUERY:")
         qutils.print_and_log(self.log, qutils.prettyprint_query(query))
         qutils.print_and_log(self.log, "*** SHOW EXPLAIN RESULTS:")
@@ -189,7 +189,7 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
             self.log.error("echo 'kill {thread_id}' | mysql --skip-ssl")
             raise MySQLdb.Error("query thread {id} still running".format(id=thread_id))
 
-    def run_on_wiki(self, cursor, host, wiki, wiki_settings):
+    def run_on_wiki(self, host, wiki, cursor, wiki_settings):
         '''
         run all queries for a specific wiki, after filling in the
         query template; this assumes a db cursor is passed in
@@ -202,10 +202,10 @@ class ExplainQueryInfo(qqueryinfo.QueryInfo):
                 cursor, thread_id = None, None
             else:
                 cursor, thread_id = self.dbinfo.get_cursor(host)
-            self.dbinfo.do_use_wiki(cursor, wiki)
+            self.dbinfo.do_use_wiki(wiki, cursor)
             # be nice to the servers
             time.sleep(0.05)
-            thr = self.start_query(cursor, wiki, query)
+            thr = self.start_query(wiki, cursor, query)
             if self.args['dryrun']:
                 thread_id = '<none (dryrun)>'
             else:
