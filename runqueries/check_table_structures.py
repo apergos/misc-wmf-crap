@@ -299,7 +299,7 @@ class TableDiffs():
                 continue
             grouped_dbhosts = self.get_grouped_dbhosts(flattened)
             self.log.info("db host groups by wiki results: %s",
-                          [grouped_dbhosts[wiki].values() for wiki in grouped_dbhosts])
+                          [list(grouped_dbhosts[wiki].values()) for wiki in grouped_dbhosts])
             for wiki in results[section_master]:
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 dbhosts_done = []
