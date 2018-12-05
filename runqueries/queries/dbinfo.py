@@ -80,7 +80,7 @@ class DbInfo():
             dbhosts, wikis_to_sections, dbhosts_by_section = self.get_dbhosts(wikidb)
         if not dbhosts and not self.args['dryrun']:
             raise ValueError("No list of db hosts provided to process")
-        return list(set(dbhosts)), wikis_to_sections, dbhosts_by_section
+        return dbhosts, wikis_to_sections, dbhosts_by_section
 
     def is_master(self, dbhost):
         '''
@@ -157,7 +157,7 @@ class DbInfo():
             if section.startswith('s') or section == 'DEFAULT':
                 # only process these, anything else can be skipped
                 dbs.extend(list(lbfactoryconf['sectionLoads'][section]))
-        return(dbs, lbfactoryconf['sectionsByDB'],
+        return(list(set(dbs)), lbfactoryconf['sectionsByDB'],
                lbfactoryconf['sectionLoads'])
 
     def get_dbhosts_for_wiki(self, wiki):
