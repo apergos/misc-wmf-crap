@@ -66,7 +66,8 @@ class TableDiffs():
             if 'columns' in table_structure[table]:
                 for column in table_structure[table]['columns']:
                     self.log.info("%sname:%s", self.indent(11), column)
-                    self.log.info("%sproperties:%s", self.indent(11), table_structure[table]['columns'][column])
+                    self.log.info("%sproperties:%s", self.indent(11),
+                                  table_structure[table]['columns'][column])
             self.log.info("%skeys:", self.indent(7))
             if 'keys' in table_structure[table]:
                 for key in table_structure[table]['keys']:
@@ -536,7 +537,9 @@ class TableInfo():
             dbcursor.execute(querystr)
             results = dbcursor.fetchall()
         except MySQLdb.Error as ex:
-            print("Failed to retrieve mysql version, %s %s", ex.args[0], ex.args[1])
+            print("dbhost: ", dbhost, "Failed to retrieve mysql version, %s %s",
+                  ex.args[0], ex.args[1])
+            return
 
         # format:     (('version', '10.2.17-MariaDB-log'),)
         print("dbhost:", dbhost, "version:", results[0][1])

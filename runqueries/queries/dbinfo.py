@@ -56,8 +56,7 @@ class DbInfo():
         output, error = proc.communicate()
         if error:
             sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
-            self.log.error("Errors encountered: %s", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         creds = json.loads(output.decode('utf-8'))
         if 'wgDBuser' not in creds or not creds['wgDBuser']:
             sys.stderr.write("got db creds: {creds}\n".format(creds=output.decode('utf-8')))
@@ -132,8 +131,7 @@ class DbInfo():
         output, error = proc.communicate()
         if error and not error.startswith(b'Warning'):
             # ignore stuff like "Warning: rename(/tmp/...) permission denied
-            self.log.error("Errors encountered: %s", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered: {error}".format(error=error.decode('utf-8')))
         if not output:
             raise IOError("Failed to retrieve db config")
         try:

@@ -71,8 +71,7 @@ class QueryRunner():
         proc = Popen(command, stdout=PIPE, stderr=PIPE)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered:", error.decode('utf-8'))
         pageinfo = json.loads(output.decode('utf-8'))
         try:
             thispage = pageinfo['query']['pages'][pageid.decode('utf-8')]
@@ -128,8 +127,7 @@ class QueryRunner():
         output, error = proc.communicate()
         # ignore stuff like "Warning: rename(/tmp/...) permission denied
         if error and not error.startswith(b'Warning'):
-            print("Errors encountered:", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered:", error.decode('utf-8'))
         try:
             settings = json.loads(output.decode('utf-8'))
         except ValueError:
@@ -174,8 +172,7 @@ class QueryRunner():
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error and not error.startswith(b"Warning:"):
-            print("Errors encountered:", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered:", error.decode('utf-8'))
         revid = output.rstrip(b'\n')
         if not revid:
             raise IOError(
@@ -226,8 +223,7 @@ class RevCounter():
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered:", error.decode('utf-8'))
         # expect something like
         # 20180920  20181001  20181020  20181101 20181120 latest
         entries = output.split()
@@ -235,8 +231,8 @@ class RevCounter():
             entries = [entry for entry in entries if entry.isdigit() and len(entry) == 8]
             return entries[-2]
         except Exception:
-            raise "Errors encountered getting run dates for {wiki} dumps:".format(
-                wiki=self.config['wikidb'])
+            raise IOError("Errors encountered getting run dates for {wiki} dumps:".format(
+                wiki=self.config['wikidb']))
 
     def get_pageid_revcount(self, rundate):
         '''
@@ -264,8 +260,7 @@ class RevCounter():
         proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
         output, error = proc.communicate()
         if error:
-            print("Errors encountered:", error.decode('utf-8'))
-            sys.exit(1)
+            raise IOError("Errors encountered:", error.decode('utf-8'))
         # expect pageid revcount as the last line
         lines = output.splitlines()
         pageid = lines[-1].split()[0]
