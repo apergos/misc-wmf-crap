@@ -49,34 +49,26 @@ class TableDiffs():
         # used if we want to compare all hosts against one single db server
         # even across wikis etc.
 
-    @staticmethod
-    def indent(count):
-        '''
-        really pylint? fine. lets you call indent(3) instead
-        of typing '   ' which is harder to eyeball and get right
-        '''
-        return ' '*count
-
     def display_table_structure(self, table_structure):
         '''
         given the table structure, display it nicely
         '''
         for table in table_structure:
-            self.log.info("%stable:%s", self.indent(3), table)
-            self.log.info("%scolumns:", self.indent(7))
+            self.log.info("%stable:%s", ' ' * 3, table)
+            self.log.info("%scolumns:", ' ' * 7)
             if 'columns' in table_structure[table]:
                 for column in table_structure[table]['columns']:
-                    self.log.info("%sname:%s", self.indent(11), column)
-                    self.log.info("%sproperties:%s", self.indent(11),
+                    self.log.info("%sname:%s", ' ' * 11, column)
+                    self.log.info("%sproperties:%s", ' ' * 11,
                                   table_structure[table]['columns'][column])
-            self.log.info("%skeys:", self.indent(7))
+            self.log.info("%skeys:", ' ' * 7)
             if 'keys' in table_structure[table]:
                 for key in table_structure[table]['keys']:
-                    self.log.info("%sinfo:%s", self.indent(12), key)
-            self.log.info("%sparameters:", self.indent(7))
+                    self.log.info("%sinfo:%s", ' ' * 12, key)
+            self.log.info("%sparameters:", ' ' * 7)
             if 'parameters' in table_structure[table]:
                 for param in table_structure[table]['parameters']:
-                    self.log.info("%s%s", self.indent(11), param.lstrip(') '))
+                    self.log.info("%s%s", ' ' * 11, param.lstrip(') '))
 
     @staticmethod
     def params_to_dict(text):
