@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
-Retrieve table structure information from MediaWiki
+Retrieve table layout information from MediaWiki
 database servers for various wikis and compare them
 
 We don't use the info schema tables because we want
@@ -11,6 +11,13 @@ have access to them.
 We sleep a tiny bit between requests because some
 requests may be made on masters, and while they will
 be fast, we don't want to impact other traffic.
+
+Variables called 'table_info' are complex maps
+corresponding to column, key and parameter information
+of a table.
+
+Variables called 'table_descr' are json-serialized
+table descriptions derived from table info vars.
 """
 
 
@@ -31,7 +38,7 @@ import queries.args as qargs
 
 class TableDiffs():
     '''
-    methods for comparing and displaying db table structure info
+    methods for comparing and displaying db table info
     '''
     def __init__(self, args, dbinfo):
         self.args = args
@@ -45,29 +52,26 @@ class TableDiffs():
         # these are set in display_wikidb_diff as needed
         self.wiki = None
         self.dbhost = None
-        self.master = None
-        # used if we want to compare all hosts against one single db server
-        # even across wikis etc.
 
-    def display_table_structure(self, table_structure):
+    def display_table_info(self, table_info):
         '''
-        given the table structure, display it nicely
+        given the table info, display it nicely
         '''
-        for table in table_structure:
+        for table in table_info:
             self.log.info("%stable:%s", ' ' * 3, table)
             self.log.info("%scolumns:", ' ' * 7)
-            if 'columns' in table_structure[table]:
-                for column in table_structure[table]['columns']:
+            if 'columns' in table_info[table]:
+                for column in table_info[table]['columns']:
                     self.log.info("%sname:%s", ' ' * 11, column)
                     self.log.info("%sproperties:%s", ' ' * 11,
-                                  table_structure[table]['columns'][column])
+                                  table_info[table]['columns'][column])
             self.log.info("%skeys:", ' ' * 7)
-            if 'keys' in table_structure[table]:
-                for key in table_structure[table]['keys']:
+            if 'keys' in table_info[table]:
+                for key in table_info[table]['keys']:
                     self.log.info("%sinfo:%s", ' ' * 12, key)
             self.log.info("%sparameters:", ' ' * 7)
-            if 'parameters' in table_structure[table]:
-                for param in table_structure[table]['parameters']:
+            if 'parameters' in table_info[table]:
+                for param in table_info[table]['parameters']:
                     self.log.info("%s%s", ' ' * 11, param.lstrip(') '))
 
     @staticmethod
@@ -89,14 +93,14 @@ class TableDiffs():
             params[fields[0]] = val
         return params
 
-    def display_parameter_diffs(self, master_table, repl_table, table, wiki):
+    def display_parameter_diffs(self, master_table_info, repl_table_info, table, wiki):
         '''
         display all differences in properties in a table on master, replica
         '''
-        master_params = self.params_to_dict(master_table['parameters'][0])
-        if master_table['parameters'][0] != repl_table['parameters'][0]:
-            master_params = self.params_to_dict(master_table['parameters'][0])
-            repl_params = self.params_to_dict(repl_table['parameters'][0])
+        master_params = self.params_to_dict(master_table_info['parameters'][0])
+        if master_table_info['parameters'][0] != repl_table_info['parameters'][0]:
+            master_params = self.params_to_dict(master_table_info['parameters'][0])
+            repl_params = self.params_to_dict(repl_table_info['parameters'][0])
             master_params_missing = []
             repl_params_missing = []
             param_diffs = []
@@ -127,81 +131,83 @@ class TableDiffs():
                       " ".join(param_diffs),
                       "on replica", self.dbhost, "wiki", wiki)
 
-    def display_key_diffs(self, master_table, repl_table, table, wiki):
+    def display_key_diffs(self, master_table_info, repl_table_info, table, wiki):
         '''
         display all differences in keys in a table on master, replica
         '''
-        for key in master_table['keys']:
-            if key not in repl_table['keys']:
+        for key in master_table_info['keys']:
+            if key not in repl_table_info['keys']:
                 print("table", table, "has key", key,
                       "missing from replica", self.dbhost, "wiki", wiki)
-        for key in repl_table['keys']:
-            if key not in master_table['keys']:
+        for key in repl_table_info['keys']:
+            if key not in master_table_info['keys']:
                 print("table", table, "has key", key,
                       "extra on replica", self.dbhost, "wiki", wiki)
 
-    def display_column_diffs(self, master_table, repl_table, table, wiki):
+    def display_column_diffs(self, master_table_info, repl_table_info, table, wiki):
         '''
         display all column differences in a table on master, replica
         '''
-        for column in master_table['columns']:
-            if column not in repl_table['columns']:
+        for column in master_table_info['columns']:
+            if column not in repl_table_info['columns']:
                 print("table", table, "has column", column,
                       "missing from replica", self.dbhost, "wiki", wiki)
-        for column in repl_table['columns']:
-            if column not in master_table['columns']:
+        for column in repl_table_info['columns']:
+            if column not in master_table_info['columns']:
                 print("table", table, "has column", column,
                       "extra on replica", self.dbhost, "wiki", wiki)
-        for column in master_table['columns']:
-            if column not in repl_table['columns']:
+        for column in master_table_info['columns']:
+            if column not in repl_table_info['columns']:
                 continue
-        if master_table['columns'][column] != repl_table['columns'][column]:
-            print("repl table", table, "column", column, "structure mismatch",
-                  repl_table['columns'][column])
+        if master_table_info['columns'][column] != repl_table_info['columns'][column]:
+            print("repl table", table, "column", column, "mismatch",
+                  repl_table_info['columns'][column])
 
-    def display_table_diffs(self, master_table, repl_table, table, wiki):
+    def display_table_diffs(self, master_table_info, repl_table_info, table, wiki):
         '''
         display all differences between tables on master and replica
         '''
-        if not master_table:
-            if repl_table:
+        if not master_table_info:
+            if repl_table_info:
                 print("table", table, "missing on master")
             return
-        if not repl_table:
+        if not repl_table_info:
             print("table", table, "missing on replica")
             return
-        self.display_column_diffs(master_table, repl_table, table, wiki)
-        self.display_key_diffs(master_table, repl_table, table, wiki)
-        self.display_parameter_diffs(master_table, repl_table, table, wiki)
+        self.display_column_diffs(master_table_info, repl_table_info, table, wiki)
+        self.display_key_diffs(master_table_info, repl_table_info, table, wiki)
+        self.display_parameter_diffs(master_table_info, repl_table_info, table, wiki)
 
-    def display_wikidb_diff(self, results, wiki, main_master, main_wiki):
+    def display_wikidb_diff(self, table_info_by_dbhost_wiki, wiki, main_master, main_wiki):
         '''
-        find and display all table structure differences between dbhost and master
+        find and display all table differences between dbhost and master
         '''
-        if self.dbhost not in results or wiki not in results[self.dbhost]:
+        if (self.dbhost not in table_info_by_dbhost_wiki or
+                wiki not in table_info_by_dbhost_wiki[self.dbhost]):
             print("No tables for wiki on", self.dbhost)
             return
-        repl_table_structure = results[self.dbhost][wiki]
+        repl_table_info = table_info_by_dbhost_wiki[self.dbhost][wiki]
         if main_wiki:
-            # we compare everything to table structure of one wiki
-            if main_master not in results or main_wiki not in results[main_master]:
+            # we compare everything to tables of one wiki
+            if (main_master not in table_info_by_dbhost_wiki or
+                    main_wiki not in table_info_by_dbhost_wiki[main_master]):
                 print("No diffs available: no tables for main wiki {wiki} on {host}".format(
                     wiki=main_wiki, host=main_master))
                 return
-            master_table_structure = results[main_master][main_wiki]
+            master_table_info = table_info_by_dbhost_wiki[main_master][main_wiki]
         else:
-            master_table_structure = results[main_master][wiki]
-        for table in master_table_structure:
-            if table not in repl_table_structure:
+            master_table_info = table_info_by_dbhost_wiki[main_master][wiki]
+        for table in master_table_info:
+            if table not in repl_table_info:
                 print("table", table, "missing from replica", self.dbhost, "wiki", wiki)
-        for table in repl_table_structure:
-            if table not in master_table_structure:
+        for table in repl_table_info:
+            if table not in master_table_info:
                 print("table", table, "extra on replica", self.dbhost, "wiki", wiki)
-        for table in master_table_structure:
-            if table not in repl_table_structure:
+        for table in master_table_info:
+            if table not in repl_table_info:
                 continue
-            self.display_table_diffs(master_table_structure[table],
-                                     repl_table_structure[table], table, wiki)
+            self.display_table_diffs(master_table_info[table],
+                                     repl_table_info[table], table, wiki)
 
     @staticmethod
     def get_matching_hosts(host, hosts_by_result):
@@ -209,28 +215,29 @@ class TableDiffs():
         given dbhosts by result for one wiki, return the list of dbhosts that
         the specified host is in
         '''
-        for table_info in hosts_by_result:
-            if host in hosts_by_result[table_info]:
-                return hosts_by_result[table_info]
+        for table_descr in hosts_by_result:
+            if host in hosts_by_result[table_descr]:
+                return hosts_by_result[table_descr]
         return []
 
-    def display_diffs_master_per_sect(self, results, flattened):
+    def display_diffs_master_per_sect(self, table_info_per_dbhost_wiki, table_descr_by_host_wiki):
         '''
         for each master on a section, get the wiki table
-        structure on the master, compare the table structure
-        of that wiki on all replicas in that section
+        info on the master, compare the tables of
+        that wiki on all replicas in that section
         '''
         masters = self.dbinfo.get_masters()
         for master in masters:
             wikis_todo = self.dbinfo.get_wikis_for_dbhost(master, self.args['wikilist'])
             if not wikis_todo:
                 continue
-            for wiki in results[master]:
+            for wiki in table_info_per_dbhost_wiki[master]:
                 print('master:', master)
                 print('wiki:', wiki)
-                self.display_table_structure(results[master][wiki])
+                self.display_table_info(table_info_per_dbhost_wiki[master][wiki])
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
-                grouped_dbhosts = self.get_grouped_dbhosts(flattened, dbhosts_todo, wiki)
+                grouped_dbhosts = self.get_grouped_dbhosts(table_descr_by_host_wiki,
+                                                           dbhosts_todo, wiki)
                 done = []
                 self.dbinfo.log.info(
                     "hosts grouped by results for wiki: %s",
@@ -240,7 +247,7 @@ class TableDiffs():
                         continue
                     self.log.info('replica: %s', dbhost)
                     self.log.info('wiki: %s', wiki)
-                    self.display_table_structure(results[dbhost][wiki])
+                    self.display_table_info(table_info_per_dbhost_wiki[dbhost][wiki])
                 print('DIFFS ****')
                 for dbhost in dbhosts_todo:
                     if dbhost in done or dbhost == master:
@@ -249,51 +256,52 @@ class TableDiffs():
                     print("common results for hosts:", same_result_hosts)
                     done.extend(same_result_hosts)
                     self.dbhost = dbhost
-                    self.display_wikidb_diff(results, wiki, master, None)
+                    self.display_wikidb_diff(table_info_per_dbhost_wiki, wiki, master, None)
 
     @staticmethod
     def get_matching_wikis(wiki, grouped_wikis_for_dbhost):
         '''
-        given the wikis grouped by their table structure for a dbhost,
+        given the wikis grouped by their table description for a dbhost,
         return the group containing the specified wiki
         '''
-        for table_structure in grouped_wikis_for_dbhost:
-            if wiki in grouped_wikis_for_dbhost[table_structure]:
-                return grouped_wikis_for_dbhost[table_structure]
+        for table_descr in grouped_wikis_for_dbhost:
+            if wiki in grouped_wikis_for_dbhost[table_descr]:
+                return grouped_wikis_for_dbhost[table_descr]
         return []
 
-    def display_diffs_master_all_sects(self, results, flattened, main_master, main_wiki):
+    def display_diffs_master_all_sects(self, table_info_per_dbhost_wiki,
+                                       table_descr_by_host_wiki, main_master, main_wiki):
         '''
-        display table structure diffs taken against one wiki on a specified
+        display table info diffs taken against one wiki on a specified
         master
-        example: use db2010 enwiki table structure against which to compare
-        the table structure of all the s5 wikis on the s5 db hosts, even though
+        example: use db2010 enwiki table against which to compare
+        the tables of all the s5 wikis on the s5 db hosts, even though
         enwiki is not in s5
-        better exmple: decide enwiki on db2010 has the table structure you
+        better exmple: decide enwiki on db2010 has the table layout you
         want on all wikis everywhere and compare them all against it
         '''
         # a dry run will produce this
         master_results = {}
-        if main_master in results:
-            master_results = results[main_master]
+        if main_master in table_info_per_dbhost_wiki:
+            master_results = table_info_per_dbhost_wiki[main_master]
         print("all wiki tables will be checked against {db}:{wiki}".format(
             db=main_master, wiki=main_wiki))
 
         if master_results:
-            self.display_table_structure(master_results[main_wiki])
+            self.display_table_info(master_results[main_wiki])
 
-        grouped_wikis = self.get_grouped_wikis(flattened)
+        grouped_wikis = self.get_grouped_wikis(table_descr_by_host_wiki)
         wikis_done = {}
         masters = list(set(self.dbinfo.get_masters()))
         for section_master in masters:
-            if section_master not in results:
+            if section_master not in table_info_per_dbhost_wiki:
                 # this db (and so the whole section) did not have any of them
                 # wikis in our list to check
                 continue
-            grouped_dbhosts = self.get_grouped_dbhosts(flattened)
+            grouped_dbhosts = self.get_grouped_dbhosts(table_descr_by_host_wiki)
             self.log.info("db host groups by wiki results: %s",
                           [list(grouped_dbhosts[wiki].values()) for wiki in grouped_dbhosts])
-            for wiki in results[section_master]:
+            for wiki in table_info_per_dbhost_wiki[section_master]:
                 dbhosts_todo = self.dbinfo.get_dbhosts_for_wiki(wiki)
                 dbhosts_done = []
                 for dbhost in dbhosts_todo:
@@ -303,7 +311,7 @@ class TableDiffs():
                         continue
                     self.log.info('replica: %s', dbhost)
                     self.log.info('wiki: %s', wiki)
-                    self.display_table_structure(results[dbhost][wiki])
+                    self.display_table_info(table_info_per_dbhost_wiki[dbhost][wiki])
 
                 # we assume that if two hosts serve one wiki in common, they
                 # serve the same list; this is what the MW sections config
@@ -321,26 +329,30 @@ class TableDiffs():
                     same_result_wikis = self.get_matching_wikis(
                         wiki, grouped_wikis[dbhost])
                     # don't display diffs for other wikis for dbhosts with the
-                    # same structure
+                    # same table description
                     for same_result_host in same_result_hosts:
                         if same_result_host not in wikis_done:
                             wikis_done[same_result_host] = same_result_wikis
                         else:
                             wikis_done[same_result_host].extend(same_result_wikis)
-                    # list all the wikis on the other dbs with the same table structure,
+                    # list all the wikis on the other dbs with the same table description,
                     # we won't display diffs for them either. if only the current wiki
                     # is in the list, don't bother to display that
                     if len(same_result_wikis) > 1:
-                        print("wikis on these hosts with same table structure:", same_result_wikis)
+                        print("wikis on these hosts with same table description:",
+                              same_result_wikis)
                     dbhosts_done.extend(same_result_hosts)
-                    self.dbinfo.log.warning("structure for wiki %s dbhost %s is %s", wiki, dbhost,
-                                            flattened[dbhost][wiki])
+                    self.dbinfo.log.warning("table description for wiki %s dbhost %s is %s",
+                                            wiki, dbhost,
+                                            table_descr_by_host_wiki[dbhost][wiki])
                     self.dbhost = dbhost
-                    self.display_wikidb_diff(results, wiki, main_master, main_wiki)
+                    self.display_wikidb_diff(table_info_per_dbhost_wiki, wiki,
+                                             main_master, main_wiki)
 
-    def display_diffs(self, results, flattened, main_master, main_wiki):
+    def display_diffs(self, table_info_per_dbhost_wiki, table_descr_by_host_wiki,
+                      main_master, main_wiki):
         '''
-        show differences between structure on master and replicas for
+        show differences between table info on master and replicas for
         each wiki
         if 'main_master', is not None, then we use that as the
         sole master and compare other dbs (masters or not) across all wikis
@@ -349,27 +361,29 @@ class TableDiffs():
         which to diff everything else
         '''
         if main_master:
-            self.display_diffs_master_all_sects(results, flattened, main_master, main_wiki)
+            self.display_diffs_master_all_sects(table_info_per_dbhost_wiki,
+                                                table_descr_by_host_wiki, main_master, main_wiki)
         else:
-            self.display_diffs_master_per_sect(results, flattened)
+            self.display_diffs_master_per_sect(table_info_per_dbhost_wiki,
+                                               table_descr_by_host_wiki)
 
     @staticmethod
-    def get_grouped_hosts_one_wiki(host_results, dbhosts, wiki):
+    def get_grouped_hosts_one_wiki(table_descr_by_host_wiki, dbhosts, wiki):
         '''
         given table info for a list of dbhosts on the specified wiki,
         group hosts according to the results
         '''
         groups = {}
         for dbhost in dbhosts:
-            if dbhost in host_results and wiki in host_results[dbhost]:
-                if host_results[dbhost][wiki] not in groups:
-                    groups[host_results[dbhost][wiki]] = [dbhost]
+            if dbhost in table_descr_by_host_wiki and wiki in table_descr_by_host_wiki[dbhost]:
+                if table_descr_by_host_wiki[dbhost][wiki] not in groups:
+                    groups[table_descr_by_host_wiki[dbhost][wiki]] = [dbhost]
                 else:
-                    groups[host_results[dbhost][wiki]].append(dbhost)
+                    groups[table_descr_by_host_wiki[dbhost][wiki]].append(dbhost)
         return groups
 
     @staticmethod
-    def group_hosts_across_wikis(host_results, dbhosts, wikis):
+    def group_hosts_across_wikis(table_descr_by_host_wiki, dbhosts, wikis):
         '''
         given table info for a list of dbhosts on specified wikis,
         group hosts according to the results
@@ -382,13 +396,14 @@ class TableDiffs():
         '''
         groups = {}
         for wiki in wikis:
-            groups[wiki] = TableDiffs.get_grouped_hosts_one_wiki(host_results, dbhosts, wiki)
+            groups[wiki] = TableDiffs.get_grouped_hosts_one_wiki(
+                table_descr_by_host_wiki, dbhosts, wiki)
         return groups
 
     @staticmethod
-    def get_grouped_dbhosts(host_results, dbhosts=None, wiki=None):
+    def get_grouped_dbhosts(table_descr_by_host_wiki, dbhosts=None, wiki=None):
         '''
-        given table info for some hosts for a specified wiki,
+        given table descriptions for some hosts for a specified wiki,
         return list of lists of hosts which have the same info
         if wiki is not specified then info for all wikis will
         be compared on the dbhosts; if dbhosts is not specified
@@ -400,48 +415,49 @@ class TableDiffs():
         '''
         groups = {}
         if not dbhosts:
-            dbhosts = host_results.keys()
+            dbhosts = table_descr_by_host_wiki.keys()
         if not wiki:
-            wikilists = [host_results[dbhost].keys() for dbhost in dbhosts]
+            wikilists = [table_descr_by_host_wiki[dbhost].keys() for dbhost in dbhosts]
             wikis = [wiki for wikis in wikilists for wiki in wikis]
-            groups = TableDiffs.group_hosts_across_wikis(host_results, dbhosts, wikis)
+            groups = TableDiffs.group_hosts_across_wikis(table_descr_by_host_wiki, dbhosts, wikis)
         else:
-            groups = TableDiffs.group_hosts_across_wikis(host_results, dbhosts, [wiki])
+            groups = TableDiffs.group_hosts_across_wikis(
+                table_descr_by_host_wiki, dbhosts, [wiki])
         return groups
 
     @staticmethod
-    def get_groups_for_wikis(table_structures_dbhost):
+    def get_groups_for_wikis(table_descr_by_wiki):
         '''
-        given table structures for a dbhost, group together wikis that have the
-        same table structure and return a dict of such groups against the table
-        structure for each group
+        given table descriptions for a dbhost's wikis, group together wikis that
+        have the same table description and return a dict of such groups against
+        the table description for each group
         '''
         groups = {}
-        for wiki in table_structures_dbhost:
-            if table_structures_dbhost[wiki] not in groups:
-                groups[table_structures_dbhost[wiki]] = [wiki]
+        for wiki in table_descr_by_wiki:
+            if table_descr_by_wiki[wiki] not in groups:
+                groups[table_descr_by_wiki[wiki]] = [wiki]
             else:
-                groups[table_structures_dbhost[wiki]].append(wiki)
+                groups[table_descr_by_wiki[wiki]].append(wiki)
         return groups
 
     @staticmethod
-    def get_grouped_wikis(table_structures_all):
+    def get_grouped_wikis(table_descr_by_dbhost_wiki):
         '''
-        given table info for all hosts and all wikis,
-        for each dbhost group wikis together that
-        have the same table structures, and return a list
+        given table descriptions for all dbhosts and all wikis on each
+        dbhost, for each dbhost group wikis together that
+        have the same table descriptions, and return a list
         of such groups per dbhost
         '''
         groups = {}
-        dbhosts = table_structures_all.keys()
+        dbhosts = table_descr_by_dbhost_wiki.keys()
         for dbhost in dbhosts:
-            groups[dbhost] = TableDiffs.get_groups_for_wikis(table_structures_all[dbhost])
+            groups[dbhost] = TableDiffs.get_groups_for_wikis(table_descr_by_dbhost_wiki[dbhost])
         return groups
 
 
-class TableInfo():
+class TableGetter():
     '''
-    methods for retrieving db table structure info
+    methods for retrieving db table layout info
     '''
     def __init__(self, args, dbinfo):
         self.args = args
@@ -484,7 +500,7 @@ class TableInfo():
         for dbhost in table_info:
             flattened[dbhost] = {}
             for wiki in table_info[dbhost]:
-                flattened[dbhost][wiki] = TableInfo.flatten_one_wiki(
+                flattened[dbhost][wiki] = TableGetter.flatten_one_wiki(
                     table_info[dbhost][wiki], ignores)
         return flattened
 
@@ -601,17 +617,17 @@ class TableInfo():
         '''
         for all wikis in our list to do, get table information
         for them on each db server that hosts them, and display
-        the differences in the structure on the replicas as
+        the differences in the table layout on the replicas as
         compared to the master
         '''
-        results = {}
+        table_info_per_dbhost_wiki = {}
         for dbhost in self.args['dbhosts']:
             wikis_todo = self.dbinfo.get_wikis_for_dbhost(dbhost, wikilist)
             if not wikis_todo:
                 continue
 
-            if dbhost not in results:
-                results[dbhost] = {}
+            if dbhost not in table_info_per_dbhost_wiki:
+                table_info_per_dbhost_wiki[dbhost] = {}
             if self.args['dryrun']:
                 dbcursor = None
             else:
@@ -625,12 +641,14 @@ class TableInfo():
             for wiki in wikis_todo:
                 # for hacky testing situations (reusing the same host
                 # in several section configs) this can happen
-                if wiki not in results[dbhost]:
-                    results[dbhost][wiki] = self.check_tables(wiki, dbcursor)
+                if wiki not in table_info_per_dbhost_wiki[dbhost]:
+                    table_info_per_dbhost_wiki[dbhost][wiki] = self.check_tables(wiki, dbcursor)
             if not self.args['dryrun']:
                 dbcursor.close()
-        flattened = self.flatten_table_info(results, self.args['params_ignore'])
-        self.tablediffs.display_diffs(results, flattened, main_master, main_wiki)
+        descriptions = self.flatten_table_info(table_info_per_dbhost_wiki,
+                                               self.args['params_ignore'])
+        self.tablediffs.display_diffs(table_info_per_dbhost_wiki, descriptions,
+                                      main_master, main_wiki)
 
 
 def usage(message=None):
@@ -649,9 +667,9 @@ Usage: python3 check_table_structures.py  --tables name[,name...]
     [--master <host>] [--main_wiki <name>]
     [--dryrun] [--verbose] [--help]
 
-This script checks the table structure for the wikis and tables specified
+This script checks the table layout for the wikis and tables specified
 across various db servers and produces a report of the differences of
-replicas agains the master in each case.
+replicas againts the master in each case.
 
 It also writes out the version of mysql/mariadb for each db server.
 
@@ -663,7 +681,7 @@ Options:
                        specified can be found on all the db hostnames given
                        Default: none, get list from db server config file
     --master    (-m)   Hostname of the single db server that is presumed to have the
-                       right table structure(s), against which all other dbs will
+                       right table layout(s), against which all other dbs will
                        be checked; if omitted, the db master for each section will
                        be used and each section configured will be reported separately
                        If this arg is set then main_wiki must also be set.
@@ -778,7 +796,7 @@ def do_main():
     args['mwhost'] = None
 
     dbinfo = qdbinfo.DbInfo(args)
-    tableinfo = TableInfo(args, dbinfo)
+    tableinfo = TableGetter(args, dbinfo)
     tableinfo.show_tables_for_wikis(args['wikilist'], args['main_master'], args['main_wiki'])
 
 
