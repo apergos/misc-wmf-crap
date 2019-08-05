@@ -8,12 +8,14 @@
 typedef enum { None, StartPage, Title, StartNS, PageId, StartRev, ByteLen, EndPage } States;
 
 void usage(char *me) {
-  fprintf(stderr,"Usage: %s [all] [bytes] [title] <number>\n",me);
+  fprintf(stderr,"Usage: %s [all] [bytes] [length] [maxrevlen] [title] <number>\n",me);
   fprintf(stderr,"counts number of revisions in each page\n");
   fprintf(stderr,"with 'all', displays the page id for each revision\n");
   fprintf(stderr,"for all namespaces\n");
   fprintf(stderr,"with 'length', displays the sum of byte lengths for\n");
   fprintf(stderr,"each page\n");
+  fprintf(stderr,"with 'maxrevlen', displays the max byte length for\n");
+  fprintf(stderr,"revisions of the page\n");
   fprintf(stderr,"with 'title', displays the title for each page\n");
   fprintf(stderr,"without 'all', displays only the revision count, and\n");
   fprintf(stderr,"only for the main namespace (ns 0)\n");
@@ -44,7 +46,7 @@ States setState (char *line, States currentState) {
   else if (!strncmp(line,"<revision>",10)) {
     return(StartRev);
   }
-  else if (!strncmp(line,"<text id",8)) {
+  else if (!strncmp(line,"<text ",6)) {
     return(ByteLen);
   }
   else if (!strncmp(line, "</page>", 6)) {
@@ -60,16 +62,17 @@ int get_bytelen(char *text) {
   int length = 0;
   char *entry = NULL;
 
-  /* typical entry in stubs: <text id="11453" bytes="4837" /> */
+  /* typical entry in stubs used to be: <text id="11453" bytes="4837" /> */
+  /* now: <text xml:space="preserve" bytes="141920" id="87207" /> */
   /* first byte */
   entry = strtok(text, "\"");
   if (entry == NULL)
     return(length);
-  /* id number */
+  /* 'preserve' */
   entry = strtok(NULL, "\"");
   if (entry == NULL)
     return(length);
-  /* 'bytes' text */
+  /* 'bytes=' */
   entry = strtok(NULL, "\"");
   if (entry == NULL)
     return(length);
@@ -85,6 +88,8 @@ int main(int argc,char **argv) {
   char line[4097];
   int revisions;
   int length;
+  int revlen;
+  int maxrevlen;
   int good;
   char *datestring = NULL;
   int res=0;
@@ -93,6 +98,7 @@ int main(int argc,char **argv) {
   int do_title = 0;
   int pageid = 0;
   int cutoff = 0;
+  int do_maxrevlen = 0;
   long long cumul = 0L;
   int i;
   char *title = NULL;
@@ -113,6 +119,9 @@ int main(int argc,char **argv) {
       else if (!strncmp(argv[i],"title",5)) {
 	do_title=1;
       }
+      else if (!strncmp(argv[i],"maxrevlen",9)) {
+	do_maxrevlen=1;
+      }
       else if (isdigit(argv[i][0])) {
 	cutoff = strtol(argv[i], NULL, 10);
       }
@@ -131,6 +140,7 @@ int main(int argc,char **argv) {
     if (state == StartPage) {
       revisions = 0;
       length = 0;
+      maxrevlen = 0;
       good = 0;
       if (title != NULL)
 	free(title);
@@ -144,7 +154,10 @@ int main(int argc,char **argv) {
       }
     }
     if (state == ByteLen && good) {
-      length+= get_bytelen(text);
+      revlen = get_bytelen(text);
+      if (revlen > maxrevlen)
+        maxrevlen = revlen;
+      length+= revlen;
       state = None;
     }
     if (state == PageId) {
@@ -166,6 +179,8 @@ int main(int argc,char **argv) {
 	  fprintf(stdout, "page:%d ",pageid);
 	if (do_length)
 	  fprintf(stdout, "bytes:%d ",length);
+	if (do_maxrevlen)
+	  fprintf(stdout, "maxrevlen:%d ",maxrevlen);
 	fprintf(stdout, "revs:%d",revisions);
 	if (do_title)
 	  fprintf(stdout, " title:%s\n",title);
