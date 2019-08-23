@@ -1,13 +1,15 @@
 #!/usr/bin/python3
 '''
 to be used to generate a pile of images for import to deployment-prep commons
-requires: pycairo
+requires: pycairo, Pillow >= 6.0.0
 '''
 import sys
 import cairo
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 
-def write_png(font, canvas_width, output_path, glyph):
+def write_png(font, canvas_width, output_path, glyph, verbose=False):
     '''
     given an output file path, a font face, the width of the
     output image (height will be same as the width) and the glyph
@@ -34,9 +36,10 @@ def write_png(font, canvas_width, output_path, glyph):
     ctx.set_font_size(canvas_width - 2)
     ctx.select_font_face(font, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
     (x_bearing, y_bearing, text_width, text_height, _dx, _dy) = ctx.text_extents(glyph)
-    # print("x_advance is", _dx, "and y_advance is", _dy)
-    # print("text_width is", text_width, "and text_height is", text_height)
-    # print("x_bearing is", x_bearing, "and y_bearing is", y_bearing)
+    if verbose:
+        print("x_advance is", _dx, "and y_advance is", _dy)
+        print("text_width is", text_width, "and text_height is", text_height)
+        print("x_bearing is", x_bearing, "and y_bearing is", y_bearing)
 
     options = cairo.FontOptions()
     options.set_antialias(cairo.ANTIALIAS_DEFAULT)
@@ -92,10 +95,34 @@ def convert_path(path, glyph):
     return path + '-' + glyph + '.png'
 
 
+def add_png_metadata(path, glyph, metadata, verbose=False):
+    '''
+    given the path to a png file and the glyph it contains,
+    write appropriate metadata fields into the file
+    '''
+    metadata['Description'] = metadata['_Description_tmpl'].format(glyph=glyph)
+    metadata['Title'] = metadata['_Title_tmpl'].format(glyph=glyph)
+
+    with Image.open(path) as image:
+        info = PngInfo()
+        for entry in ["Author", "Description", "Title", "Software"]:
+            if not entry.startswith('_'):
+                info.add_itxt(entry, metadata[entry], "en", entry)
+        image.save('new-' + path, pnginfo=info)
+
+        if verbose:
+            with Image.open('new-' + path) as image:
+                print("new image is", 'new-' + path)
+                print(image.info)
+
+
 def do_main():
     '''
     entry point
     '''
+    # change this if you need to debug something
+    verbose = False
+
     if len(sys.argv) < 5 or len(sys.argv) > 6:
         usage('missing or extra arg(s)')
 
@@ -112,9 +139,20 @@ def do_main():
     if len(sys.argv) == 6:
         end_glyph = sys.argv[5]
 
+    render_info = "rendered from {font} with black border on golden-yellow background".format(
+        font=font)
+    metadata = {
+        'Author': "Ariel Glenn",
+        'Software': "pycairo and pillow",
+        '_Description_tmpl': "Character {glyph} " + render_info,
+        '_Title_tmpl': "Icon_for_char_{glyph}_black_gold_32x32.png"
+    }
+
     for glyph in range(ord(convert_hex(start_glyph)), ord(convert_hex(end_glyph)) + 1):
         glyph = chr(glyph)
-        write_png(font, int(canvas_width), convert_path(output_path, glyph), glyph)
+        file_path = convert_path(output_path, glyph)
+        write_png(font, int(canvas_width), file_path, glyph, verbose)
+        add_png_metadata(file_path, glyph, metadata, verbose)
 
 
 if __name__ == '__main__':
