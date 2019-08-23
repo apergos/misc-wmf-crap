@@ -7,7 +7,7 @@ import sys
 import cairo
 
 
-def write_png(font, canvas_width, glyph, output_path):
+def write_png(font, canvas_width, output_path, glyph):
     '''
     given an output file path, a font face, the width of the
     output image (height will be same as the width) and the glyph
@@ -53,26 +53,68 @@ def usage(message=None):
     '''display usage info about this script'''
     if message is not None:
         print(message)
-    print("Usage: generate_glyph_pngs.py font-name canvas-width-in-px glyph output-file-path")
+    print("Usage: generate_glyph_pngs.py font-name canvas-width-in-px "
+          "output-path start-glyph end-glyph")
     print("Canvas width and height are the same, font is always bold weight, colors are fixed")
-    print("Example use: python3 generate_glyph_pngs.py 'Noto Serif CJK JP' 32 見  me.png")
+    print("Output-path is the relative or absolute path including the file basename but not")
+    print("the '.png' suffix. The glyph to be printed will be concatenated to the filename.")
+    print("Example use: python3 generate_glyph_pngs.py 'Noto Serif CJK JP' 32 myfile 見myfile")
+    print("         or: python3 generate_glyph_pngs.py 'Noto Serif CJK JP' 32 myfile 0xe8a68b")
     sys.exit(1)
+
+
+def convert_hex(text):
+    '''
+    if the text is a string of hex bytes, convert that to unicode
+    and use it instead
+    '''
+    if not text.startswith('0x'):
+        return text
+
+    text = text[2:]
+    hex_digits = ''.join([letter for letter in text if letter not in 'abcdefABCDEF1234567890'])
+    if hex_digits:
+        return text
+    if len(text) % 2:
+        return text
+
+    # we have a valid hex string, let's convert it then
+    return bytes.fromhex(text).decode('utf8')
+
+
+def convert_path(path, glyph):
+    '''
+    add - + glyph to the filename, and make sure that the
+    .png suffix is added afterwards
+    '''
+    if path.endswith('.png'):
+        path = path[0:-4]
+    return path + '-' + glyph + '.png'
 
 
 def do_main():
     '''
     entry point
     '''
-    if len(sys.argv) != 5:
+    if len(sys.argv) < 5 or len(sys.argv) > 6:
         usage('missing or extra arg(s)')
+
     font = sys.argv[1]
+
     canvas_width = sys.argv[2]
     if not canvas_width.isdigit():
         usage('width must be the number of pixels')
-    glyph = sys.argv[3]
-    output_path = sys.argv[4]
 
-    write_png(font, int(canvas_width), glyph, output_path)
+    output_path = sys.argv[3]
+
+    start_glyph = sys.argv[4]
+    end_glyph = start_glyph
+    if len(sys.argv) == 6:
+        end_glyph = sys.argv[5]
+
+    for glyph in range(ord(convert_hex(start_glyph)), ord(convert_hex(end_glyph)) + 1):
+        glyph = chr(glyph)
+        write_png(font, int(canvas_width), convert_path(output_path, glyph), glyph)
 
 
 if __name__ == '__main__':
