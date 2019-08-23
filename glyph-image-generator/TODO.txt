@@ -1,0 +1,11 @@
+* running without args doesn't give a usage message as I would expect.
+* should not create a new-xxx file or at least should move it over the old filename
+  so we only have one file per glyph at the end
+* should write code to upload images to the wiki of your choice via api with prompt
+  for password, config settings for wait in between uploads, extraction of metadata
+  for upload description etc
+* need a non-en description field in these images (probably el)
+* should write code to add mutilingual captions via the api
+* should write code to add depicts statements via the api
+
+
