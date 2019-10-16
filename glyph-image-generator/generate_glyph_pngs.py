@@ -1,12 +1,19 @@
 #!/usr/bin/python3
+# encoding: utf-8
 '''
 to be used to generate a pile of images for import to deployment-prep commons
 requires: pycairo, Pillow >= 6.0.0
 '''
 import configparser
 import getopt
+import getpass
+import os
 import sys
+import time
+import base64
+
 import cairo
+import requests
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
@@ -66,7 +73,8 @@ def get_config(configfile):
     if not parser.has_section('all'):
         parser.add_section('all')
 
-    for setting in ['author', 'bgcolor', 'canvas_width', 'font', 'output_path']:
+    for setting in ['author', 'bgcolor', 'canvas_width', 'font', 'log',
+                    'output_path', 'user', 'agent', 'wiki_api_url']:
         if parser.has_option('all', setting):
             config[setting] = parser.get('all', setting)
     return config
@@ -88,8 +96,19 @@ def validate_args(args):
         usage('Bad bgcolor argument')
     args['color_pycairo'] = convert_rgb_to_pycairo(args['color_rgb'])
 
-    if args['author'] is None:
+    if 'author' not in args or args['author'] is None:
         usage("mandatory '--author' argument is missing")
+    if 'wiki_api_url' not in args or args['wiki_api_url'] is None:
+        usage("mandatory 'apiurl' config setting is missing")
+    if 'agent' not in args or args['agent'] is None:
+        usage("mandatory 'agent' config setting is missing")
+    if args['start_glyph'] is None:
+        usage("mandatory 'start_glyph' argument is missing")
+    if args['end_glyph'] is None:
+        args['end_glyph'] = args['start_glyph']
+
+    if args['wiki_user'] is None:
+        args['wiki_user'] = args['author']
 
 
 def get_arg(opt, val, args):
@@ -108,6 +127,8 @@ def get_arg(opt, val, args):
         args['end_glyph'] = val
     elif opt in ["-o", "--output"]:
         args['output_path'] = val
+    elif opt in ["-u", "--user"]:
+        args['wiki_user'] = val
     elif opt in ["-w", "--width"]:
         args['canvas_width'] = val
     else:
@@ -147,8 +168,10 @@ def get_default_args():
             'bgcolor': '#E5CC99:golden',
             'canvas_width': '32',
             'start_glyph': None,
+            'log': None,
             'end_glyph': None,
             'output_path': None,
+            'wiki_user': None,
             'verbose': False,
             'help': False}
     return args
@@ -161,9 +184,9 @@ def parse_args():
 
     try:
         (options, remainder) = getopt.gnu_getopt(
-            sys.argv[1:], "a:b:c:f:o:w:s:e:vh", ["author=", "bgcolor=", "configfile=", "font=",
-                                                 "output=", "width=", "start=", "end=",
-                                                 "verbose", "help"])
+            sys.argv[1:], "a:b:c:f:l:o:u:w:s:e:vh", ["author=", "bgcolor=", "configfile=", "font=",
+                                                     "output=", "width=", "start=", "end=", "log=",
+                                                     "user=", "verbose", "help"])
 
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))
@@ -195,7 +218,9 @@ Arguments:
   --font    (-f):   name of font to be used; if there are spaces in the name, it should be quoted
                     default: none
   --author  (-a):   name of author to be added as Author field in PNG file
-                    default: none
+                    default: name of author
+  --user    (-u):   name of wiki user
+                    default: name of author
   --bgcolor (-b):   entry of the form <hex-color-value>:<color-name>
                     the hex color will be used for the background of the image
                     the color name will be used in the description of the image
@@ -211,6 +236,8 @@ Arguments:
                     default: same as start glyph (only one file will be produced)
   --width   (-w):   width of canvas (of image) in pixels; height and width will be the same
                     default: 32
+  --log     (-l):   log file for logging the http status code of uploads
+                    default: none, messages are logged to stderr
   --verbose (-v):   display messages about files as they are created
                     default: false
   --help    (-h):   display this usage message
@@ -295,6 +322,149 @@ def add_png_metadata(path, glyph, metadata, args):
             with Image.open('new-' + path) as image:
                 print("new image is", 'new-' + path)
                 print(image.info)
+    os.unlink(path)
+    os.rename('new-' + path, path)
+
+
+def wiki_login(args):
+    '''
+    log into the wiki given by the wiki api url in the config file,
+    get a crsf token, return it
+    '''
+    # fixme if we get an error reply we should retry a few times (but
+    # only if the error is not 'bad password'
+
+    password = getpass.getpass('Wiki user password: ')
+    headers = {'User-Agent': args['agent']}
+    params = {'action': 'query', 'format': 'json', 'utf8': '',
+              'meta': 'tokens', 'type': 'login'}
+    result = requests.post(args['wiki_api_url'], data=params, headers=headers)
+    try:
+        login_token = result.json()['query']['tokens']['logintoken']
+    except Exception:  # pylint: disable=broad-except
+        sys.stderr.write(result.text)
+        sys.exit(-1)
+    cookies = result.cookies.copy()
+    params = {'action': 'login', 'format': 'json', 'utf8': '',
+              'lgname': args['wiki_user'], 'lgpassword': password, 'lgtoken': login_token}
+    result = requests.post(args['wiki_api_url'], data=params, cookies=cookies, headers=headers)
+    # {'warnings': {'main': {'*': 'Unrecognized parameter: password.'}},
+    #  'login': {'result': 'Failed',
+    #            'reason': 'The supplied credentials could not be authenticated.'}}
+    body = result.json()
+    if 'login' not in body or body['login']['result'] == 'Failed':
+        sys.stderr.write(result.text + "\n")
+        sys.exit(1)
+    cookies = result.cookies.copy()
+
+    params = {'action': 'query', 'format': 'json', 'meta': 'tokens'}
+    result = requests.post(args['wiki_api_url'], data=params, cookies=cookies)
+    return cookies, result.json()['query']['tokens']['csrftoken']
+
+
+def get_image_info(path):
+    '''given the path to a png image, get and return the image info from it'''
+    with Image.open(path) as image:
+        image.load()
+        info = image.text
+    return info
+
+
+def get_file_page_text(image_info, today):
+    '''given the image info from a png image, concoct suitable file page
+    text contents for it and return them'''
+    # {'Author': 'ArielGlenn',
+    #  'Description': 'Character 見 rendered from Noto Serif CJK JP with black border on yellow',
+    #  'Title': 'Icon_for_char_見_black_yellow_32x32.png',
+    #  'Software': 'pycairo and pillow'}
+    description = image_info['Description']
+    category = 'Chinese letters'
+    author = image_info['Author']
+    # double {{ for templates becomes {{{{ with format()
+    page_text_tmpl = """=={{int:filedesc}}==
+{{{{Information
+|description={{{{en|1={description}}}}}
+|date={today}
+|source={{{{own}}}}
+|author={author}
+}}}}
+
+=={{{{int:license-header}}}}==
+{{{{self|cc-by-sa-4.0}}}}
+
+[[Category:{category}]]
+"""
+    return page_text_tmpl.format(description=description,
+                                 today=today,
+                                 author=author,
+                                 category=category)
+
+
+def get_file_page_comment():
+    '''given the image info from a png image, cobble together a reasonable
+    upload edit summary and return it'''
+    return 'batch upload of glyphs from font Noto Serif CJK JP'
+
+
+def get_file_page_title(image_info):
+    '''given the image info from a png image, grab the image title out
+    of the image info and return it to be used as the File page title
+    during upload
+    '''
+    return image_info['Title']
+
+
+def log(title, status, success, args):
+    '''
+    log the results of an attempted upload of an image to
+    a log file; this can be used to figure out what uploads
+    to retry, where to restart if the script is interrupted
+    or dies, etc.
+    '''
+    log_entry = "{status}: ({success} {title}\n".format(status=status, success=success, title=title)
+    if 'log' in args and args['log']:
+        with open(args['log'], "a+") as logfile:
+            logfile.write(log_entry)
+    else:
+        sys.stderr.write(log_entry)
+
+
+def rfc2047_encode(text):
+    '''convert utf8 string into something urllib3 likes via rfc2047, ugh'''
+    return str('=?utf-8?B?{}?='.format(base64.b64encode(text.encode('utf-8'))))
+
+
+def upload_image(path, token, cookies, args, today):
+    '''
+    given path to the image file, a crsf token, and general args,
+    try to upload it, with some reasonable number of retries.
+    '''
+    image_info = get_image_info(path)
+    text = get_file_page_text(image_info, today)
+    comment = get_file_page_comment()
+    title = get_file_page_title(image_info)
+
+    # urllib3 doesn't like utf8 filenames, nor byte strings, so there you have it
+    # see https://github.com/psf/requests/issues/4218
+    encoded_title = rfc2047_encode(title)
+
+    params = {'action': 'upload', 'format':'json', 'filename': title,
+              'comment': comment, 'text': text, 'token': token, 'ignorewarnings': 1}
+    files = {'file': (encoded_title, open(path, 'rb'), 'multipart/form-data')}
+
+    response = requests.post(args['wiki_api_url'], data=params, files=files, cookies=cookies,
+                             headers={'User-Agent': args['agent']})
+
+    success = False
+    if response.status_code == 200:
+        results = response.json()
+        if 'upload' in results:
+            if results['upload']['Result'] == 'Success':
+                success = True
+    if not success:
+        sys.stderr.write(response.text + "\n")
+    log(title, response.status_code, success, args)
+    return success
 
 
 def do_main():
@@ -312,12 +482,23 @@ def do_main():
         '_Title_tmpl': "Icon_for_char_{glyph}_black_{color}_32x32.png"
     }
 
+    # create the images
     for glyph in range(ord(convert_hex(args['start_glyph'])),
                        ord(convert_hex(args['end_glyph'])) + 1):
         glyph = chr(glyph)
         file_path = convert_path(args['output_path'], glyph)
         write_png(file_path, glyph, args)
         add_png_metadata(file_path, glyph, metadata, args)
+
+    # upload the images
+    cookies, crsf_token = wiki_login(args)
+    # format we like in commons uploads: YYYY-MM-DD HH:MM:SS
+    today = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+    for glyph in range(ord(convert_hex(args['start_glyph'])),
+                       ord(convert_hex(args['end_glyph'])) + 1):
+        glyph = chr(glyph)
+        file_path = convert_path(args['output_path'], glyph)
+        upload_image(file_path, crsf_token, cookies, args, today)
 
 
 if __name__ == '__main__':
