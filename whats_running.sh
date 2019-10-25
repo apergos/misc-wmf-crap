@@ -154,7 +154,6 @@ parse_entry() {
                 command="multistream"
 		wiki=$( get_wikiname_from_args_via_filepath $@ )
 		break
-		shift
 		;;
 	    "/usr/local/bin/writeuptopageid" )
                 command="prefetch-setup"
@@ -164,7 +163,6 @@ parse_entry() {
                 command="prefetch-setup"
 		wiki=$( get_wikiname_from_args_via_filepath $@ )
 		break
-		shift
 		;;
 	    "/usr/bin/mysqldump" )
                 command="tables"
@@ -174,7 +172,6 @@ parse_entry() {
                 command=$( get_dd_recombine_type $@ )
 		wiki=$( get_wikiname_from_args_via_filepath $@ )
 		break
-		shift
 		;;
 	    "/usr/bin/lbzip2" )
 		shift
