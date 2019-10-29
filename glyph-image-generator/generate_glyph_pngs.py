@@ -18,6 +18,9 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 
+# FIXME we need to respect replag and we don't.
+
+
 def write_png(output_path, glyph, args):
     '''
     given an output file path, the glyph to be displayed, and a dict of args
@@ -74,7 +77,7 @@ def get_config(configfile):
         parser.add_section('all')
 
     for setting in ['author', 'bgcolor', 'canvas_width', 'font', 'log',
-                    'output_path', 'user', 'agent', 'wiki_api_url']:
+                    'output_path', 'user', 'agent', 'wait', 'wiki_api_url']:
         if parser.has_option('all', setting):
             config[setting] = parser.get('all', setting)
     return config
@@ -107,20 +110,31 @@ def validate_args(args):
     if args['end_glyph'] is None:
         args['end_glyph'] = args['start_glyph']
 
+    if not args['wait'].isdigit():
+        usage("argument 'wait' must be a number")
+
     if args['wiki_user'] is None:
         args['wiki_user'] = args['author']
+
+    args['jobs'] = args['jobs'].split(',')
+    known_jobs = ['generate', 'upload', 'caption']
+    for job in args['jobs']:
+        if job not in known_jobs:
+            usage("bad value to --jobs, known values are " + ",".join(known_jobs))
 
 
 def get_arg(opt, val, args):
     '''set one arg from opt/val'''
-    if opt in ["-c", "--configfile"]:
-        args['configfile'] = val
+    if opt in ["-c", "--config"]:
+        args['config'] = val
     elif opt in ["-a", "--author"]:
         args['author'] = val
     elif opt in ["-b", "--bgcolor"]:
         args['bgcolor'] = val
     elif opt in ["-f", "--font"]:
         args['font'] = val
+    elif opt in ["-j", "--jobs"]:
+        args['jobs'] = val
     elif opt in ["-s", "--start"]:
         args['start_glyph'] = val
     elif opt in ["-e", "--end"]:
@@ -131,6 +145,8 @@ def get_arg(opt, val, args):
         args['wiki_user'] = val
     elif opt in ["-w", "--width"]:
         args['canvas_width'] = val
+    elif opt in ["-W", "--wait"]:
+        args['wait'] = val
     else:
         return False
 
@@ -169,9 +185,11 @@ def get_default_args():
             'canvas_width': '32',
             'start_glyph': None,
             'log': None,
+            'jobs': 'generate,upload,caption',
             'end_glyph': None,
             'output_path': None,
             'wiki_user': None,
+            'wait': '15',
             'verbose': False,
             'help': False}
     return args
@@ -180,13 +198,14 @@ def get_default_args():
 def parse_args():
     '''get args passed on the command line
     and return as a dict'''
-    args = {'configfile': 'glyphs.conf'}
+    args = {'config': 'glyphs.conf'}
 
     try:
         (options, remainder) = getopt.gnu_getopt(
-            sys.argv[1:], "a:b:c:f:l:o:u:w:s:e:vh", ["author=", "bgcolor=", "configfile=", "font=",
-                                                     "output=", "width=", "start=", "end=", "log=",
-                                                     "user=", "verbose", "help"])
+            sys.argv[1:], "a:b:c:f:j:l:o:u:w:s:e:vh",
+            ["author=", "bgcolor=", "config=", "font=",
+             "output=", "width=", "start=", "end=", "log=",
+             "user=", "jobs=", "verbose", "help"])
 
     except getopt.GetoptError as err:
         usage("Unknown option specified: " + str(err))
@@ -198,7 +217,7 @@ def parse_args():
     if remainder:
         usage("Unknown option(s) specified: {opt}".format(opt=remainder[0]))
 
-    conf = get_config(args['configfile'])
+    conf = get_config(args['config'])
     merge_args(conf, get_default_args(), args)
     validate_args(args)
 
@@ -211,7 +230,8 @@ def usage(message=None):
         print(message)
     usage_message = """Usage: generate_glyph_pngs.py --font <font-name> --author <name>
          --output <path-to-output-file> --start <start-glyph> [--end <end-glyph>]
-         [--bgcolor <hex:name>] [--width <canvas-width-in-px>] [--verbose] | --help
+         [--config] <path> [--bgcolor <hex:name>] [--width <canvas-width-in-px>]
+         [--wait <seconds>] [--verbose] | --help
 
 Arguments:
 
@@ -234,8 +254,14 @@ Arguments:
                     default: none
   --end     (-e):   last glyph for which to produce a file
                     default: same as start glyph (only one file will be produced)
+  --config  (-c):   name of file with configuration settings
+                    default: glyphs.conf in current working directory
   --width   (-w):   width of canvas (of image) in pixels; height and width will be the same
                     default: 32
+  --wait    (-W):   number of seconds to wait between uploads or caption additions
+                    default: 15
+  --jobs    (-j):   comma separated list of jobs to do
+                    default: generate,upload,caption  (i.e. all of them)
   --log     (-l):   log file for logging the http status code of uploads
                     default: none, messages are logged to stderr
   --verbose (-v):   display messages about files as they are created
@@ -316,14 +342,16 @@ def add_png_metadata(path, glyph, metadata, args):
         for entry in ["Author", "Description", "Title", "Software"]:
             if not entry.startswith('_'):
                 info.add_itxt(entry, metadata[entry], "en", entry)
-        image.save('new-' + path, pnginfo=info)
+        basename, filename = os.path.split(path)
+        newname = os.path.join(basename, 'new-' + filename)
+        image.save(newname, pnginfo=info)
 
         if args['verbose']:
-            with Image.open('new-' + path) as image:
-                print("new image is", 'new-' + path)
+            with Image.open(newname) as image:
+                print("new image is", newname)
                 print(image.info)
     os.unlink(path)
-    os.rename('new-' + path, path)
+    os.rename(newname, path)
 
 
 def wiki_login(args):
@@ -331,7 +359,7 @@ def wiki_login(args):
     log into the wiki given by the wiki api url in the config file,
     get a crsf token, return it
     '''
-    # fixme if we get an error reply we should retry a few times (but
+    # FIXME if we get an error reply we should retry a few times (but
     # only if the error is not 'bad password'
 
     password = getpass.getpass('Wiki user password: ')
@@ -414,14 +442,15 @@ def get_file_page_title(image_info):
     return image_info['Title']
 
 
-def log(title, status, success, args):
+def log(item, status, success, args):
     '''
-    log the results of an attempted upload of an image to
-    a log file; this can be used to figure out what uploads
-    to retry, where to restart if the script is interrupted
-    or dies, etc.
+    log the results of an attempted upload of an image or
+    addition of a caption to a log file; this can be used
+    to figure out what uploads or captions to retry, where
+    to restart if the script is interrupted or dies, etc.
     '''
-    log_entry = "{status}: ({success} {title}\n".format(status=status, success=success, title=title)
+    log_entry = "{status}: (success:{success}) {item}\n".format(
+        status=status, success=success, item=item)
     if 'log' in args and args['log']:
         with open(args['log'], "a+") as logfile:
             logfile.write(log_entry)
@@ -459,11 +488,73 @@ def upload_image(path, token, cookies, args, today):
     if response.status_code == 200:
         results = response.json()
         if 'upload' in results:
-            if results['upload']['Result'] == 'Success':
+            if results['upload']['result'] == 'Success':
                 success = True
     if not success:
         sys.stderr.write(response.text + "\n")
     log(title, response.status_code, success, args)
+    return success
+
+
+def get_mediainfo_id(image_info, args):
+    '''given info for an image, find the mediainfo id for the image
+    on the specified wiki'''
+    title = get_file_page_title(image_info)
+    params = {'action': 'query',
+              'prop': 'info',
+              'titles': 'File:' + title,
+              'format': 'json'}
+    response = requests.post(args['wiki_api_url'], data=params,
+                             headers={'User-Agent': args['agent']})
+    success = False
+    if response.status_code == 200:
+        results = response.json()
+        if 'query' in results:
+            if list(results['query']['pages'].keys()):
+                success = True
+    if not success:
+        sys.stderr.write(response.text + "\n")
+        return None
+
+    page_id = list(response.json()['query']['pages'].keys())[0]
+    if page_id == '-1':
+        sys.stderr.write(response.text + "\n")
+        return None
+
+    return 'M' + list(response.json()['query']['pages'].keys())[0]
+
+
+def add_caption(path, token, cookies, args):
+    '''construct caption text for the image, find the
+    image page on the wiki, and add a caption to it
+    via the MediaWiki api'''
+    image_info = get_image_info(path)
+    caption = image_info['Description']
+    comment = 'add caption'
+    minfo_id = get_mediainfo_id(image_info, args)
+    if minfo_id is None:
+        sys.stderr.write("Failed to retrieve mediainfo id for " + path + ", skipping\n")
+        return False
+    if args['verbose']:
+        print("Going to add caption for entity id", minfo_id)
+    params = {'action': 'wbeditentity',
+              'format': 'json',
+              'id': minfo_id,
+              'data': '{"labels":{"en":{"language":"en","value":"' + caption + '"}}}',
+              'summary': comment,
+              'token': token}
+    response = requests.post(args['wiki_api_url'], data=params, cookies=cookies,
+                             headers={'User-Agent': args['agent']})
+
+    success = False
+    if response.status_code == 200:
+        results = response.json()
+        if 'success' in results:
+            if results['success'] == 1:
+                success = True
+    if not success:
+        sys.stderr.write(response.text + "\n")
+    log(caption, response.status_code, success, args)
     return success
 
 
@@ -482,23 +573,55 @@ def do_main():
         '_Title_tmpl': "Icon_for_char_{glyph}_black_{color}_32x32.png"
     }
 
-    # create the images
-    for glyph in range(ord(convert_hex(args['start_glyph'])),
-                       ord(convert_hex(args['end_glyph'])) + 1):
-        glyph = chr(glyph)
-        file_path = convert_path(args['output_path'], glyph)
-        write_png(file_path, glyph, args)
-        add_png_metadata(file_path, glyph, metadata, args)
+    if 'generate' in args['jobs']:
+        # create the images
+        for glyph in range(ord(convert_hex(args['start_glyph'])),
+                           ord(convert_hex(args['end_glyph'])) + 1):
+            glyph = chr(glyph)
+            file_path = convert_path(args['output_path'], glyph)
+            write_png(file_path, glyph, args)
+            add_png_metadata(file_path, glyph, metadata, args)
 
-    # upload the images
-    cookies, crsf_token = wiki_login(args)
-    # format we like in commons uploads: YYYY-MM-DD HH:MM:SS
-    today = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
-    for glyph in range(ord(convert_hex(args['start_glyph'])),
-                       ord(convert_hex(args['end_glyph'])) + 1):
-        glyph = chr(glyph)
-        file_path = convert_path(args['output_path'], glyph)
-        upload_image(file_path, crsf_token, cookies, args, today)
+    if 'upload' in args['jobs']:
+        # upload the images
+        cookies, crsf_token = wiki_login(args)
+        # format we like in commons uploads: YYYY-MM-DD HH:MM:SS
+        today = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        failed = 0
+        for glyph in range(ord(convert_hex(args['start_glyph'])),
+                           ord(convert_hex(args['end_glyph'])) + 1):
+            glyph = chr(glyph)
+            file_path = convert_path(args['output_path'], glyph)
+            # wait between requests
+            time.sleep(int(args['wait']))
+
+            if not upload_image(file_path, crsf_token, cookies, args, today):
+                failed += 1
+            else:
+                failed = 0
+            if failed > 5:
+                sys.stderr.write("Giving up on uploads after 5 consecutive failures, " +
+                                 "check log for details")
+                sys.exit(1)
+
+    if 'caption' in args['jobs']:
+        # add captions to the images
+        cookies, crsf_token = wiki_login(args)
+        failed = 0
+        for glyph in range(ord(convert_hex(args['start_glyph'])),
+                           ord(convert_hex(args['end_glyph'])) + 1):
+            glyph = chr(glyph)
+            file_path = convert_path(args['output_path'], glyph)
+            # wait between requests
+            time.sleep(int(args['wait']))
+            if not add_caption(file_path, crsf_token, cookies, args):
+                failed += 1
+            else:
+                failed = 0
+            if failed > 5:
+                sys.stderr.write("Giving up on captions after 5 consecutive failures, " +
+                                 "check log for details")
+                sys.exit(1)
 
 
 if __name__ == '__main__':
