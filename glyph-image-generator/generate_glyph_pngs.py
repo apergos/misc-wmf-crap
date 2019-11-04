@@ -640,7 +640,7 @@ class MediaInfoJob():
 
     def upload_image(self, glyph):
         '''
-        given path to the image file, a crsf token, and general args,
+        given path to the image file, a csrf token, and general args,
         try to upload it, with some reasonable number of retries.
         '''
         path = self.convert_path(self.args['output_path'], glyph)
@@ -810,7 +810,7 @@ class MediaInfoJob():
     def wiki_login(self, prompt, api_url):
         '''
         log into the wiki given by the wiki api url in the config file,
-        prompting with the name of the wiki, get a crsf token, return it
+        prompting with the name of the wiki, get a csrf token, return it
         and the associated cookies
         '''
         password = getpass.getpass('Wiki user password ({wiki}): '.format(wiki=prompt))
