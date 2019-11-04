@@ -35,7 +35,8 @@ def usage(message=None):
     usage_message = """Usage: generate_glyph_pngs.py --font <font-name> --author <name>
          --output <path-to-output-file> --start <start-glyph> [--end <end-glyph>]
          [--config] <path> [--bgcolor <hex:name>] [--bordercolor <hex:name>]
-         [--width <canvas-width-in-px>] [--wait <seconds>] [--verbose] | --help
+         [--width <canvas-width-in-px>] [--depicts <property-id>] [--wait <seconds>]
+         [--verbose] | --help
 
 Arguments:
 
@@ -70,18 +71,22 @@ Arguments:
                        default: 15
   --jobs        (-j):  comma separated list of jobs to do
                        default: generate,upload,caption,additem,depicts  (i.e. all of them)
+  --depicts     (-d):  the property id for 'depicts'
+                       default: P180
   --log         (-l):  log file for logging the http status code of uploads
                        default: none, messages are logged to stderr
   --verbose     (-v):  display messages about files as they are created
                        default: false
   --help        (-h):  display this usage message
 
-Notes: font is always bold weight; text color is fixed
+Notes: font is always bold weight; text color is fixed. The property identifier for
+'Depicts' is fixed at P245962. (This should probably be configurable!)
 
 Example uses:
    python3 generate_glyph_pngs.py -f 'Noto Serif CJK JP' -w 32 -o myfile -a ArielGlenn -s 見
    python3 generate_glyph_pngs.py -f 'Noto Serif CJK JP' -o myfile -a ArielGlenn \
-                                  -s 0xe8a68b -e 0xe8a68f"""
+                                  -s 0xe8a68b -e 0xe8a68f
+   python3 generate_glyph_pngs.py -c glyphs.conf.prod -j generate,upload -s 覐 -e 趋 -v"""
 
     print(usage_message)
     sys.exit(1)
@@ -239,6 +244,8 @@ class ArgParser():
             self.args['author'] = val
         elif opt in ["-b", "--bgcolor"]:
             self.args['bgcolor'] = val
+        elif opt in ["-d", "--depicts"]:
+            self.args['depicts'] = val
         elif opt in ["-B", "--bordercolor"]:
             self.args['bordercolor'] = val
         elif opt in ["-f", "--font"]:
@@ -276,9 +283,9 @@ class ArgParser():
         and return as a dict'''
         try:
             (options, remainder) = getopt.gnu_getopt(
-                sys.argv[1:], "a:b:B:c:f:j:l:o:u:w:s:e:vh",
+                sys.argv[1:], "a:b:B:c:d:f:j:l:o:u:w:s:e:vh",
                 ["author=", "bgcolor=", "bordercolor=",
-                 "config=", "font=",
+                 "config=", "depicts", "font=",
                  "output=", "width=", "start=", "end=", "log=",
                  "user=", "jobs=", "verbose", "help"])
 
@@ -319,9 +326,9 @@ class ArgParser():
         if not parser.has_section('all'):
             parser.add_section('all')
 
-        for setting in ['author', 'bgcolor', 'bordercolor', 'canvas_width', 'font', 'log',
-                        'output_path', 'user', 'agent', 'wait', 'wiki_api_url',
-                        'wikidata_api_url']:
+        for setting in ['author', 'bgcolor', 'bordercolor', 'canvas_width', 'depicts',
+                        'font', 'log', 'output_path', 'user', 'agent', 'wait',
+                        'wiki_api_url', 'wikidata_api_url']:
             if parser.has_option('all', setting):
                 config[setting] = parser.get('all', setting)
         return config
@@ -334,6 +341,7 @@ class ArgParser():
                 'bgcolor': '#E5CC99:golden',
                 'bordercolor': '#111111:black',
                 'canvas_width': '32',
+                'depicts': 'P180',
                 'start_glyph': None,
                 'log': None,
                 'jobs': 'generate,upload,caption,additem,depicts',
@@ -388,6 +396,9 @@ class ArgParser():
 
         if not self.args['wait'].isdigit():
             usage("argument 'wait' must be a number")
+
+        if not self.args['depicts'].startswith('P') or not self.args['depicts'][1:].isdigit():
+            usage("argument 'depicts' must be a property id (Pnnn)")
 
         if self.args['end_glyph'] is None:
             self.args['end_glyph'] = self.args['start_glyph']
@@ -725,15 +736,15 @@ class MediaInfoJob():
                 if self.args['verbose']:
                     print("for use in depicts statements, created new item with id", item_id)
                     return True
+        return False
 
-    @staticmethod
-    def get_depicts_from_content(mediainfo):
+    def get_depicts_from_content(self, mediainfo):
         '''given mediainfo content for a specific mediainfo id,
         get any depicts statements out of there and collect all the
         target Q items in a list and return it'''
         depicts_targets = []
-        if 'P180' in mediainfo['statements']:
-            for entry in mediainfo['statements']['P180']:
+        if self.args['depicts'] in mediainfo['statements']:
+            for entry in mediainfo['statements'][self.args['depicts']]:
                 try:
                     depicts_targets.append(entry['mainsnak']['datavalue']['value']['id'])
                 except Exception:
@@ -775,11 +786,11 @@ class MediaInfoJob():
                           "and depicted", depicts_id, "already present, moving on")
                 return True
 
-        # FIXME Will this lose any caption that exists? do I need to combine this stuff with
-        # the existing mediainfo content? I think there is an 'add' parameter, right??
-        depicts = ('{"statements":"{"P180":[{{"mainsnak":{"snaktype": "value","property":"P180",' +
-                   '"datavalue":{"value":{"entity-type":"item","numeric-id":' +
-                   depicts_id + ',"id":"' + depicts_id + '"},"type":"wikibase-entityid"}}]}}')
+        depicts = ('{"claims":[{"mainsnak":{"snaktype":"value","property":"' +
+                   self.args['depicts'] +
+                   '","datavalue":{"value":{"entity-type":"item","id":"' +
+                   depicts_id + '"},' +
+                   '"type":"wikibase-entityid"}},"type":"statement","rank":"normal"}]}')
         comment = 'add depicts statement'
         params = {'action': 'wbeditentity',
                   'format': 'json',
