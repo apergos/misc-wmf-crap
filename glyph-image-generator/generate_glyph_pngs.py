@@ -169,7 +169,7 @@ class CairoHex():
 class ImageInfoProvider():
     '''read and extract image info'''
     def __init__(self):
-        self.page_text_tmpl = """=={{int:filedesc}}==
+        self.page_text_tmpl = """=={{{{int:filedesc}}}}==
 {{{{Information
 |description={{{{en|1={description}}}}}
 |date={today}
