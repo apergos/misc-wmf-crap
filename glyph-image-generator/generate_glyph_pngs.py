@@ -21,9 +21,6 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 
-# FIXME we need to respect replag and we don't.
-# FIXME we need to make the waits happen in a nice way, right now we
-#       call the wait before the routine that makes one -- or maybe two! -- edits
 # FIXME if we get an error logging in we should retry a few times (but
 #       only if the error is not 'bad password')
 
@@ -92,13 +89,17 @@ Example uses:
     sys.exit(1)
 
 
-def log(item, status, success, args):
+def log(item, response, success, args):
     '''
     log the results of an attempted upload of an image or
     addition of a caption to a log file; this can be used
     to figure out what uploads or captions to retry, where
     to restart if the script is interrupted or dies, etc.
     '''
+    if response is None:
+        status = "-"
+    else:
+        status = response.status_code
     log_entry = "{status}: (success:{success}) {item}\n".format(
         status=status, success=success, item=item)
     if 'log' in args and args['log']:
@@ -236,20 +237,29 @@ class ArgParser():
     def __init__(self):
         self.args = {'config': 'glyphs.conf'}
 
+    def get_cairo_arg(self, opt, val):
+        '''set arg used by the cairo software
+        for generating glyphs'''
+        if opt in ["-b", "--bgcolor"]:
+            self.args['bgcolor'] = val
+        elif opt in ["-B", "--bordercolor"]:
+            self.args['bordercolor'] = val
+        elif opt in ["-f", "--font"]:
+            self.args['font'] = val
+        elif opt in ["-w", "--width"]:
+            self.args['canvas_width'] = val
+        else:
+            return False
+        return True
+
     def get_arg(self, opt, val):
         '''set one arg from opt/val'''
         if opt in ["-c", "--config"]:
             self.args['config'] = val
         elif opt in ["-a", "--author"]:
             self.args['author'] = val
-        elif opt in ["-b", "--bgcolor"]:
-            self.args['bgcolor'] = val
         elif opt in ["-d", "--depicts"]:
             self.args['depicts'] = val
-        elif opt in ["-B", "--bordercolor"]:
-            self.args['bordercolor'] = val
-        elif opt in ["-f", "--font"]:
-            self.args['font'] = val
         elif opt in ["-j", "--jobs"]:
             self.args['jobs'] = val
         elif opt in ["-s", "--start"]:
@@ -260,12 +270,10 @@ class ArgParser():
             self.args['output_path'] = val
         elif opt in ["-u", "--user"]:
             self.args['wiki_user'] = val
-        elif opt in ["-w", "--width"]:
-            self.args['canvas_width'] = val
         elif opt in ["-W", "--wait"]:
             self.args['wait'] = val
         else:
-            return False
+            return self.get_cairo_arg(opt, val)
         return True
 
     def get_flag(self, opt):
@@ -514,6 +522,9 @@ class MediaInfoJob():
             '_Description_tmpl': "Character {glyph} " + render_info,
             '_Title_tmpl': "Icon_for_char_{glyph}_{border}_{color}_32x32.png"
         }
+        # the first time we do a job, this flag will be cleared
+        self.first_action = True
+
         args['creds'] = {}
         args['creds']['commons'] = {'cookies': None, 'token': None}
         args['creds']['wikidata'] = {'cookies': None, 'token': None}
@@ -534,11 +545,54 @@ class MediaInfoJob():
         success = False
         if response.status_code == 200:
             success = True
-            if 'error' in response.json():
+            if 'errors' in response.json():
                 success = False
         if not success:
             sys.stderr.write(response.text + "\n")
         return success
+
+    def request_with_retries(self, params, url, cookies=None, files=None):
+        '''retry requests that timeout or that fail because the databases are
+        lagged, with increasing wait times between requests'''
+
+        maxretries = 3
+        retries = 0
+        # replag_max = 5
+        conn_timeout = 10
+        retry_wait = 30
+        agent_header = {'User-Agent': self.args['agent']}
+
+        # params['maxlag'] = replag_max
+        params['format'] = 'json'
+        params['formatversion'] = 2
+        params['errorlang'] = 'en'
+        params['errorformat'] = 'plaintext'
+        while retries <= maxretries:
+            try:
+                if files is not None:
+                    # cookies needed for files upload
+                    response = requests.post(
+                        url, data=params, timeout=conn_timeout, headers=agent_header,
+                        cookies=cookies, files=files)
+                elif cookies is not None:
+                    response = requests.post(
+                        url, data=params, timeout=conn_timeout, headers=agent_header,
+                        cookies=cookies)
+                else:
+                    response = requests.post(
+                        url, data=params, timeout=conn_timeout, headers=agent_header)
+                if self.args['verbose'] and response is not None:
+                    print("response:", response.text)
+                if response is not None and response.status_code == 503:
+                    retries += 1
+                    if retries <= maxretries:
+                        time.sleep(retry_wait * retries)
+                return response
+            except requests.exceptions.Timeout:
+                retries += 1
+                if retries <= maxretries:
+                    time.sleep(retry_wait * retries)
+        return None
 
     def get_mediainfo_id(self, image_info):
         '''given info for an image, find the mediainfo id for the image
@@ -546,41 +600,36 @@ class MediaInfoJob():
         title = ImageInfoProvider.get_file_page_title(image_info)
         params = {'action': 'query',
                   'prop': 'info',
-                  'titles': 'File:' + title,
-                  'format': 'json'}
-        response = requests.post(self.args['wiki_api_url'], data=params,
-                                 headers={'User-Agent': self.args['agent']})
+                  'titles': 'File:' + title}
+        response = self.request_with_retries(params, self.args['wiki_api_url'])
         success = self.check_success(response)
         if not success:
             return None
         try:
-            page_id = list(response.json()['query']['pages'].keys())[0]
-        except Exception:
+            page_id = response.json()['query']['pages'][0]['pageid']
+        except Exception:  # pylint: disable=W0703
+            # fixme should probably show log something here
             return None
 
         if page_id == '-1':
             sys.stderr.write(response.text + "\n")
             return None
 
-        return 'M' + list(response.json()['query']['pages'].keys())[0]
+        return 'M' + str(page_id)
 
     def get_mediainfo(self, minfo_id):
         '''given the mediainfo id, get the mediainfo content
         in json format and return it'''
         params = {'action': 'wbgetentities',
-                  'ids': minfo_id,
-                  'format': 'json'}
-        response = requests.post(self.args['wiki_api_url'], data=params,
-                                 headers={'User-Agent': self.args['agent']})
-        if self.args['verbose']:
-            print("response:", response.text)
+                  'ids': minfo_id}
+        response = self.request_with_retries(params, self.args['wiki_api_url'])
         success = self.check_success(response)
         if not success:
             return None
 
         try:
             mediainfo = response.json()['entities'][minfo_id]
-        except Exception:
+        except Exception:  # pylint: disable=W0703
             return None
         return mediainfo
 
@@ -596,10 +645,9 @@ class MediaInfoJob():
                   'language': 'en',
                   'strictlanguage': 'true',
                   'type': 'item',
-                  'limit': '50',
-                  'format': 'json'}
-        response = requests.post(self.args['wikidata_api_url'], data=params,
-                                 headers={'User-Agent': self.args['agent']})
+                  'limit': '50'}
+        response = self.request_with_retries(params, self.args['wikidata_api_url'])
+        print(response.text)
         success = self.check_success(response)
         if not success:
             return None
@@ -654,17 +702,16 @@ class MediaInfoJob():
         # see https://github.com/psf/requests/issues/4218
         encoded_title = self.rfc2047_encode(title)
 
-        params = {'action': 'upload', 'format':'json', 'filename': title,
+        params = {'action': 'upload', 'filename': title,
                   'comment': comment, 'text': text,
-                  'token': self.args['creds']['commons']['token'], 'ignorewarnings': 1}
+                  'token': self.args['creds']['commons']['token'],
+                  'ignorewarnings': 1}
         files = {'file': (encoded_title, open(path, 'rb'), 'multipart/form-data')}
-
-        response = requests.post(self.args['wiki_api_url'], data=params,
-                                 files=files, cookies=self.args['creds']['commons']['cookies'],
-                                 headers={'User-Agent': self.args['agent']})
-
+        response = self.request_with_retries(params, self.args['wiki_api_url'],
+                                             cookies=self.args['creds']['commons']['cookies'],
+                                             files=files)
         success = self.check_success(response)
-        log(title, response.status_code, success, self.args)
+        log(title, response, success, self.args)
         return success
 
     def add_caption(self, glyph):
@@ -682,17 +729,14 @@ class MediaInfoJob():
         if self.args['verbose']:
             print("Going to add caption for entity id", minfo_id)
         params = {'action': 'wbeditentity',
-                  'format': 'json',
                   'id': minfo_id,
                   'data': '{"labels":{"en":{"language":"en","value":"' + caption + '"}}}',
                   'summary': comment,
                   'token': self.args['creds']['commons']['token']}
-        response = requests.post(self.args['wiki_api_url'], data=params,
-                                 cookies=self.args['creds']['commons']['cookies'],
-                                 headers={'User-Agent': self.args['agent']})
-
+        response = self.request_with_retries(params, self.args['wiki_api_url'],
+                                             cookies=self.args['creds']['commons']['cookies'])
         success = self.check_success(response)
-        log(caption, response.status_code, success, self.args)
+        log(caption, response, success, self.args)
         return success
 
     def add_wikidata_item(self, image_info):
@@ -707,15 +751,13 @@ class MediaInfoJob():
             '"descriptions":{"en":{"language":"en","value":"CJK (hanzi/kanji/hanja) character"}}}')
         params = {'action': 'wbeditentity',
                   'new': 'item',
-                  'format': 'json',
                   'data': contents,
                   'summary': comment,
                   'token': self.args['creds']['wikidata']['token']}
-        response = requests.post(self.args['wikidata_api_url'], data=params,
-                                 cookies=self.args['creds']['wikidata']['cookies'],
-                                 headers={'User-Agent': self.args['agent']})
+        response = self.request_with_retries(params, self.args['wikidata_api_url'],
+                                             cookies=self.args['creds']['wikidata']['cookies'])
         success = self.check_success(response)
-        log(glyph, response.status_code, success, self.args)
+        log(glyph, response, success, self.args)
         if not success:
             return None
         return response.json()['entity']['id']
@@ -747,7 +789,7 @@ class MediaInfoJob():
             for entry in mediainfo['statements'][self.args['depicts']]:
                 try:
                     depicts_targets.append(entry['mainsnak']['datavalue']['value']['id'])
-                except Exception:
+                except Exception:  # pylint: disable=W0703
                     # some unknown value probably, move on
                     continue
         return depicts_targets
@@ -776,15 +818,17 @@ class MediaInfoJob():
             return False
 
         mediainfo = self.get_mediainfo(minfo_id)
-        if mediainfo:
-            existing_depicts = self.get_depicts_from_content(mediainfo)
-            if depicts_id in existing_depicts:
-                # it's already there, skip
-                if self.args['verbose']:
-                    glyph = ImageInfoProvider.get_glyph_from_image_info(image_info)
-                    print("Depicts statement for", glyph, "with mediainfo id", minfo_id,
-                          "and depicted", depicts_id, "already present, moving on")
-                return True
+        if minfo_id is None or 'statements' not in mediainfo:
+            print("Probably no such image, no mediainfo statements available for", path)
+            return True
+
+        existing_depicts = self.get_depicts_from_content(mediainfo)
+        if depicts_id in existing_depicts:
+            if self.args['verbose']:
+                glyph = ImageInfoProvider.get_glyph_from_image_info(image_info)
+                print("Depicts statement for", glyph, "with mediainfo id", minfo_id,
+                      "and depicted", depicts_id, "already present, moving on")
+            return True
 
         depicts = ('{"claims":[{"mainsnak":{"snaktype":"value","property":"' +
                    self.args['depicts'] +
@@ -793,18 +837,15 @@ class MediaInfoJob():
                    '"type":"wikibase-entityid"}},"type":"statement","rank":"normal"}]}')
         comment = 'add depicts statement'
         params = {'action': 'wbeditentity',
-                  'format': 'json',
                   'id': minfo_id,
                   'data': depicts,
                   'summary': comment,
                   'token': self.args['creds']['commons']['token']}
-        response = requests.post(self.args['wiki_api_url'], data=params,
-                                 cookies=self.args['creds']['commons']['cookies'],
-                                 headers={'User-Agent': self.args['agent']})
-
+        response = self.request_with_retries(params, self.args['wiki_api_url'],
+                                             cookies=self.args['creds']['commons']['cookies'])
         success = self.check_success(response)
         glyph = ImageInfoProvider.get_glyph_from_image_info(image_info)
-        log(glyph, response.status_code, success, self.args)
+        log(glyph, response, success, self.args)
         return success
 
     def wiki_login(self, prompt, api_url):
@@ -815,30 +856,39 @@ class MediaInfoJob():
         '''
         password = getpass.getpass('Wiki user password ({wiki}): '.format(wiki=prompt))
         headers = {'User-Agent': self.args['agent']}
-        params = {'action': 'query', 'format': 'json', 'utf8': '',
+        params = {'action': 'query', 'utf8': '',
                   'meta': 'tokens', 'type': 'login'}
-        result = requests.post(api_url, data=params, headers=headers)
+        standard_params = {'format': 'json', 'formatversion': 2,
+                           'errorlang': 'en', 'errorformat': 'plaintext'}
+        result = requests.post(api_url, data={**params, **standard_params}, headers=headers)
         try:
             login_token = result.json()['query']['tokens']['logintoken']
         except Exception:  # pylint: disable=broad-except
+            sys.stderr.write("No login token retrieved\n")
+            print({**params, **standard_params})
+            print(result.headers)
             sys.stderr.write(result.text)
             sys.exit(-1)
         cookies = result.cookies.copy()
-        params = {'action': 'login', 'format': 'json', 'utf8': '',
-                  'lgname': self.args['wiki_user'], 'lgpassword': password, 'lgtoken': login_token}
-        result = requests.post(api_url, data=params,
+
+        params = {'action': 'login', 'utf8': '',
+                  'lgname': self.args['wiki_user'], 'lgpassword': password,
+                  'lgtoken': login_token}
+        result = requests.post(api_url, data={**params, **standard_params},
                                cookies=cookies, headers=headers)
         # {'warnings': {'main': {'*': 'Unrecognized parameter: password.'}},
         #  'login': {'result': 'Failed',
         #            'reason': 'The supplied credentials could not be authenticated.'}}
         body = result.json()
-        if 'login' not in body or body['login']['result'] == 'Failed':
+        if 'login' not in body or body['login']['result'] != 'Success':
+            sys.stderr.write("Login after token retrieval failed\n")
             sys.stderr.write(result.text + "\n")
             sys.exit(1)
         cookies = result.cookies.copy()
 
-        params = {'action': 'query', 'format': 'json', 'meta': 'tokens'}
-        result = requests.post(api_url, data=params, cookies=cookies)
+        params = {'action': 'query', 'meta': 'tokens'}
+        result = requests.post(api_url, data={**params, **standard_params}, cookies=cookies)
+        # FIXME should really check for success here, or try/except... anything but this
         return cookies, result.json()['query']['tokens']['csrftoken']
 
     def do_job(self, job_name, job, wait=True, login=None):
@@ -847,16 +897,21 @@ class MediaInfoJob():
         be called, wait is true if there should be a wait between glyphs'''
 
         for wiki in login:
-            self.args['creds'][wiki]['cookies'], self.args['creds'][wiki]['token'] = self.wiki_login(
-                wiki, self.get_url(wiki))
+            if not self.args['creds'][wiki]['token']:
+                self.args['creds'][wiki]['cookies'], self.args['creds'][wiki]['token'] = (
+                    self.wiki_login(wiki, self.get_url(wiki)))
         failed = 0
         for glyph in range(ord(CairoHex.convert_hex(self.args['start_glyph'])),
                            ord(CairoHex.convert_hex(self.args['end_glyph'])) + 1):
-            glyph = chr(glyph)
-            if wait:
+            if self.first_action:
+                # don't sleep before the first edit of the first job, that's just
+                # annoying :-P
+                self.first_action = False
+            elif wait:
                 # wait between requests
                 time.sleep(int(self.args['wait']))
 
+            glyph = chr(glyph)
             if not job(glyph):
                 failed += 1
             else:
