@@ -680,6 +680,7 @@ class MediaInfoJob():
         png_writer = PngWriter(self.args, self.metadata)
         png_writer.write_png(path, glyph)
         png_writer.add_png_metadata(path, glyph)
+        return True
 
     @staticmethod
     def rfc2047_encode(text):
