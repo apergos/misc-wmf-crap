@@ -144,7 +144,7 @@ def get_lbconf(args):
     get list of dbs and section-related info from wgLBFactoryConf stuff
     by running a mw maintenance script
     '''
-    command = ['sshes', 'sshes_quiet', args['host'], 'sudo', '-u' 'www-data']
+    command = ['ssh', args['host'], 'sudo', '-u' 'www-data']
     command.extend(['php', args['multi'], 'getConfiguration.php'])
     command.extend(["--wiki={wiki}".format(wiki=args['wiki']),
                     '--format=json',
@@ -171,6 +171,37 @@ def get_lbconf(args):
     return results['wgLBFactoryConf']
 
 
+def get_text_b64_enc(args):
+    '''we've tried to get the thing that is presumably a text addr but it's not
+    utf-8. so now let's asume it's the ACTUAL TEXT, get it as base64 encoded and return that'''
+    query = ('use {wiki}; select TO_BASE64(old_text) FROM text ' +
+             'INNER JOIN content ON old_id = SUBSTRING(content_address, 4) ' +
+             'INNER JOIN slots ON slot_content_id = content_id  ' +
+             'INNER JOIN slot_roles on slot_role_id = role_id ' +
+             'WHERE role_name = "{slotrole}" and slot_revision_id = {revid};')
+    query_formatted = query.format(wiki=args['wiki'],
+                                   slotrole=args['slot'],
+                                   revid=args['revid'])
+    command = ["echo", "'{query}'".format(query=query_formatted), '|',
+               "ssh", args['host'],
+               'sql', '--wiki={wiki}'.format(wiki=args['wiki']), '--', '-s', '-s', '-N']
+    command = " ".join(command)
+    if args['dryrun']:
+        log("would run command: {cmd}".format(cmd=command), args)
+        return None
+    if args['verbose']:
+        log("running command: {cmd}".format(cmd=command), args)
+    proc = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
+    output, error = proc.communicate()
+    text = output.rstrip(b'\n')
+    if not text:
+        if error:
+            log(error.decode('utf-8') + "\n", args)
+        raise ValueError("Failed to get text for {revid} for {wiki}".format(
+            revid=args['revid'], wiki=args['wiki']))
+    return text
+
+
 def get_text_addr(args):
     '''get and return the address of the text content for the specific
     slot and revision, after lookup in the text table'''
@@ -183,7 +214,7 @@ def get_text_addr(args):
                                    slotrole=args['slot'],
                                    revid=args['revid'])
     command = ["echo", "'{query}'".format(query=query_formatted), '|',
-               "sshes", "sshes_quiet", args['host'],
+               "ssh", args['host'],
                'sql', '--wiki={wiki}'.format(wiki=args['wiki']), '--', '-s', '-s', '-N']
     command = " ".join(command)
     if args['dryrun']:
@@ -199,7 +230,10 @@ def get_text_addr(args):
             log(error.decode('utf-8') + "\n", args)
         raise ValueError("Failed to get text address for {revid} for {wiki}".format(
             revid=args['revid'], wiki=args['wiki']))
-    return text_addr.decode('utf-8')
+    try:
+        return text_addr.decode('utf-8')
+    except:
+        return None
 
 
 def lookup_ip(address, args):
@@ -207,7 +241,7 @@ def lookup_ip(address, args):
     given an ip address, try to look it up on the 'maintenance host' we
     were given via the command line
     '''
-    command = ["sshes", "sshes_quiet", args['host'], 'dig', '-x', address, '+short']
+    command = ["ssh", args['host'], 'dig', '-x', address, '+short']
     command = " ".join(command)
     if args['dryrun']:
         log("would run command: {cmd}".format(cmd=command), args)
@@ -275,7 +309,7 @@ def get_blob(cluster_info, args):
                                    b_table=cluster_info['blob_table'],
                                    b_id=cluster_info['blob'])
     command = ["echo", "'{query}'".format(query=query_formatted), '|',
-               "sshes", "sshes_quiet", cluster_info['host'], 'sudo', '-s',
+               "ssh", cluster_info['host'], 'sudo', '-s',
                'mysql', '-s', '-s', '-N', '-P', cluster_info['port']]
     command = " ".join(command)
     if args['dryrun']:
@@ -330,10 +364,17 @@ def do_main():
     args = get_args()
     validate_args(args)
     text_address = get_text_addr(args)
-    cluster_info = get_cluster_info(text_address, args)
-    blob_b64_encoded_gzipped = get_blob(cluster_info, args)
-    blob_raw = blob_convert(blob_b64_encoded_gzipped, args)
-    print(blob_raw)
+    if text_address:
+        cluster_info = get_cluster_info(text_address, args)
+        blob_b64_encoded_gzipped = get_blob(cluster_info, args)
+        blob_raw = blob_convert(blob_b64_encoded_gzipped, args)
+        print(blob_raw)
+    else:
+        # let's hope the so-called text address is actually the text compressed;
+        # this is true in some cases for e.g. labswiki
+        blob_b64_encoded_gzipped = get_text_b64_enc(args)
+        blob_raw = blob_convert(blob_b64_encoded_gzipped, args)
+        print(blob_raw)
 
 
 if __name__ == '__main__':
