@@ -1,0 +1,8 @@
+1) cp get_slot_growth.py to home dir on mwmaint1002
+2) run it as me with python3 ./get_slot_growth.py -w commonswiki -h db2119.codfw.wmnet -v
+3) grab all the output and put it in a local file output.txt
+4) grep slotcount output.txt  | awk '{ print $2 " " $4 }' | sed -e 's/"//g; s/,//g;' > slots-data.txt
+5) cat gnuplot-cmds.txt | gnuplot
+
+that's it: graph now in commons_slots.png
+
